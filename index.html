@@ -116,7 +116,21 @@ const Snd = {
 
 const SFX = {
   ok() { return !!Snd.ctx; },
-  shoot() { if (!this.ok() || !Snd.gate('shoot', 40)) return; const p = rand(0.88, 1.12); Snd.noise({ dur: 0.07, vol: 0.2, type: 'highpass', f0: 1100 * p }); Snd.tone({ type: 'square', f0: 380 * p, f1: 110, dur: 0.09, vol: 0.13 }); },
+  /* 枪声按武器区分：0 突击步枪（清脆点射）1 双管霰弹枪（低沉轰鸣）2 元素冲锋枪（高频电流啪声） */
+  shoot(w) {
+    if (!this.ok() || !Snd.gate('shoot' + w, w === 2 ? 60 : w === 1 ? 90 : 40)) return;
+    const p = rand(0.9, 1.1);
+    if (w === 1) { Snd.noise({ dur: 0.24, vol: 0.5, type: 'lowpass', f0: 3200, f1: 180 }); Snd.tone({ type: 'sine', f0: 150, f1: 40, dur: 0.22, vol: 0.5 }); Snd.tone({ type: 'square', f0: 210, f1: 70, dur: 0.08, vol: 0.16 }); }
+    else if (w === 2) { Snd.noise({ dur: 0.04, vol: 0.12, type: 'highpass', f0: 2600 * p }); Snd.tone({ type: 'square', f0: 880 * p, f1: 330, dur: 0.05, vol: 0.08 }); Snd.tone({ type: 'sine', f0: 1900 * p, f1: 1300, dur: 0.05, vol: 0.05 }); }
+    else { Snd.noise({ dur: 0.06, vol: 0.2, type: 'highpass', f0: 1500 * p }); Snd.tone({ type: 'square', f0: 520 * p, f1: 150, dur: 0.07, vol: 0.12 }); Snd.tone({ type: 'sine', f0: 150, f1: 60, dur: 0.06, vol: 0.2 }); }
+  },
+  /* 换枪：两声金属咔嗒 */
+  swap() {
+    if (!this.ok()) return;
+    Snd.tone({ type: 'square', f0: 380, dur: 0.03, vol: 0.1 }); Snd.tone({ type: 'square', f0: 620, dur: 0.04, vol: 0.1, delay: 0.07 }); Snd.noise({ dur: 0.06, vol: 0.08, type: 'bandpass', f0: 1800, q: 2 });
+  },
+  /* 点燃：一团火苗窜起的"呼"声 */
+  ignite() { if (!this.ok() || !Snd.gate('ignite', 140)) return; Snd.noise({ dur: 0.28, vol: 0.16, type: 'bandpass', f0: 500, f1: 2600, q: 0.8 }); },
   hit() { if (!this.ok() || !Snd.gate('hit', 45)) return; Snd.tone({ type: 'triangle', f0: rand(700, 1000), f1: 300, dur: 0.045, vol: 0.1 }); },
   crit() { if (!this.ok() || !Snd.gate('crit', 80)) return; Snd.tone({ type: 'square', f0: 1500, f1: 900, dur: 0.07, vol: 0.09 }); Snd.tone({ type: 'sine', f0: 2300, f1: 1800, dur: 0.12, vol: 0.09, delay: 0.02 }); },
   kill() { if (!this.ok() || !Snd.gate('kill', 60)) return; Snd.noise({ dur: 0.14, vol: 0.2, type: 'lowpass', f0: 1400, f1: 200 }); Snd.tone({ type: 'sine', f0: 240, f1: 50, dur: 0.14, vol: 0.24 }); },
@@ -193,6 +207,12 @@ canvas.addEventListener('mousedown', e => {
 });
 window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+/* 滚轮换枪：向下滚切下一把，向上滚切上一把（Ctrl + 滚轮是浏览器缩放，不拦截） */
+canvas.addEventListener('wheel', e => {
+  if (state !== ST.PLAY || e.ctrlKey || !player.alive) return;
+  e.preventDefault();
+  switchWeapon(player.weapon + (e.deltaY > 0 ? 1 : -1));
+}, { passive: false });
 window.addEventListener('resize', resize);
 window.addEventListener('blur', () => { keys.clear(); mouse.down = false; if (state === ST.PLAY) setPause(true); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { keys.clear(); mouse.down = false; if (state === ST.PLAY) setPause(true); } });
@@ -217,18 +237,26 @@ let picking = null, cards = [], pendingLevels = 0;
 let debug = false, fps = 60, fpsAcc = 0, fpsN = 0;
 let hurtFlash = 0, whiteFlash = 0, speedT = 0, hintT = 0;
 let spawnT = 0, nextWaveT = 0, waveN = 0, nextBossT = 0, xpCount = 0;
-const cam = { x: 0, y: 0, shake: 0, sx: 0, sy: 0, rot: 0 };
+const cam = { x: 0, y: 0, shake: 0, sx: 0, sy: 0, rot: 0, kx: 0, ky: 0 };   // kx / ky：霰弹枪后坐力带来的镜头后蹬
 const wordCool = {};
 
 const MAX_E = 300, MAX_B = 520, MAX_P = 420, DASH_SPEED = 1080, DASH_TIME = 0.19, DASH_CD = 1.5;
-const GUN_NAME = '废铁 SMG「撕碎者」';
+/* 三把武器的基础手感（升级后的实际数值见 weaponStats）
+   dmg 每发弹丸伤害 · rate 每秒射击次数 · pellets 每次弹丸数 · cone 扩散半角（度）· mag 弹匣 · reload 装填秒数
+   kb 击退倍率 · shake 每枪震屏 · kick 开枪把玩家往后顶的速度 · muzzle 枪口到角色中心的距离
+   fire / shock 元素触发概率 · chains 闪电跳跃次数 · critMul 暴击倍率 */
+const WEAPONS = [
+  { name: '突击步枪「铁皮 AK」', short: '突击步枪', trait: '精准 · 暴击 ×2.5', elem: '', dmg: 14, rate: 7, pellets: 1, cone: 2.2, mag: 30, reload: 1.25, speed: 980, life: 0.56, kb: 1, shake: 1, kick: 0, muzzle: 34, fire: 0, shock: 0, chains: 0, critMul: 2.5 },
+  { name: '双管霰弹枪「双响炮」', short: '双管霰弹枪', trait: '高伤 · 高后坐力', elem: 'fire', dmg: 9.5, rate: 1.7, pellets: 8, cone: 20, mag: 6, reload: 1.7, speed: 780, life: 0.42, kb: 2.4, shake: 6.5, kick: 270, muzzle: 36, fire: 0.4, shock: 0, chains: 0, critMul: 2.2 },
+  { name: '元素冲锋枪「电蚂蚱」', short: '元素冲锋枪', trait: '高射速 · 连锁闪电', elem: 'shock', dmg: 5.2, rate: 13, pellets: 1, cone: 7, mag: 55, reload: 1.5, speed: 840, life: 0.5, kb: 0.55, shake: 0.45, kick: 0, muzzle: 30, fire: 0, shock: 0.3, chains: 1, critMul: 2.2 }
+];
 const enemies = [], enemyPool = [];
 const bullets = [], bulletPool = [];
 const parts = [], partPool = [];
 const texts = [], textPool = [];
 const words = [], wordPool = [];
 const drops = [];
-const fuses = [], booms = [], bolts = [], ghosts = [], decals = [], toasts = [];
+const fuses = [], booms = [], bolts = [], zaps = [], ghosts = [], decals = [], toasts = [];   // zaps：电击命中点的电光星
 const drawList = [], solidsNear = [];
 let banner = null, gun = null, stats = null;
 
@@ -236,7 +264,7 @@ function xpNeed(l) { return Math.floor(8 + l * 5 + Math.pow(l, 1.75)); }
 function newPlayer() {
   return { x: 0, y: 0, r: 13, sy: 0, dk: 3, hp: 100, hpMax: 100, regen: 0, shield: 30, shieldMax: 30, shieldRate: 14, shieldDelay: 0, shieldFx: 0,
     speed: 250, mvx: 0, mvy: 0, kbx: 0, kby: 0, aim: 0, hasTarget: false, moving: false, walk: 0,
-    mag: 24, magMax: 24, reloading: false, reloadT: 0, reloadMax: 1.1, fireT: 0, heat: 0, spread: 0, recoil: 0, muzzle: 0, flash: 0,
+    weapon: 0, prevW: 0, swapT: 0, ammo: WEAPONS.map(w => w.mag), mmax: WEAPONS.map(w => w.mag), rel: [0, 0, 0], fireT: 0, heat: 0, spread: 0, recoil: 0, muzzle: 0, flash: 0,   // 每把枪独立弹匣 ammo / 容量 mmax / 剩余装填秒数 rel（0 = 未在装填）
     iframes: 0, dashT: 0, dashCd: 0, dashCdMax: DASH_CD, dashDx: 1, dashDy: 0, ghostT: 0, frenzyT: 0,
     level: 1, xp: 0, xpNext: xpNeed(1), crit: 0.05, magnetR: 95, alive: true };
 }
@@ -249,11 +277,11 @@ const RARITY = [
   { name: '传说', col: '#FF9A1F', mult: 3.5 }
 ];
 const UPS = {
-  shotgun: { name: '散弹分裂', type: 'weapon', desc: '弹丸数量 +1，扩散角增大', base: 1, cap: 6, val: 0, lvl: 0 },
+  shotgun: { name: '分裂弹头', type: 'weapon', desc: '霰弹枪 +1 弹丸，其它枪伤害 +10%', base: 1, cap: 6, val: 0, lvl: 0 },
   firerate: { name: '射速提升', type: 'weapon', desc: '射击速度 +14%，弹匣同步扩容', base: 0.14, cap: 2.0, val: 0, lvl: 0 },
   pierce: { name: '穿透子弹', type: 'weapon', desc: '子弹可额外穿透 1 名敌人', base: 1, cap: 5, val: 0, lvl: 0 },
-  fire: { name: '燃烧附魔', type: 'weapon', desc: '子弹有概率点燃敌人，持续灼烧', base: 1, cap: 5, val: 0, lvl: 0 },
-  shock: { name: '电击附魔', type: 'weapon', desc: '子弹有概率释放连锁闪电', base: 1, cap: 5, val: 0, lvl: 0 },
+  fire: { name: '燃烧附魔', type: 'weapon', desc: '全武器概率点燃，灼烧伤害提升', base: 1, cap: 5, val: 0, lvl: 0 },
+  shock: { name: '电击附魔', type: 'weapon', desc: '全武器概率连锁闪电，并多跳一次', base: 1, cap: 5, val: 0, lvl: 0 },
   damage: { name: '伤害强化', type: 'weapon', desc: '所有子弹伤害 +15%', base: 0.15, cap: 3.0, val: 0, lvl: 0 },
   speed: { name: '肾上腺素', type: 'passive', desc: '移动速度 +8%', base: 0.08, cap: 0.64, val: 0, lvl: 0 },
   magnet: { name: '磁吸力场', type: 'passive', desc: '经验晶体与补给的拾取范围 +45%', base: 0.45, cap: 2.7, val: 0, lvl: 0 },
@@ -273,7 +301,10 @@ const TIPS = [
   '提示：自爆矮人靠近时会闪红光加速——离远点解决它。',
   '提示：冲刺翻滚期间无敌，可以直接穿过人海。',
   '提示：BADASS 铁桶兵必掉宝箱，宝箱直接送一次升级。',
-  '提示：准星变红 = 已锁定目标；按住左键可自由射击。'
+  '提示：准星变红 = 已锁定目标；按住左键可自由射击。',
+  '提示：霰弹枪打空后马上切冲锋枪，装填期间也能持续输出。',
+  '提示：霰弹枪后坐力很大，朝远离敌人的方向开枪能把自己弹出去。',
+  '提示：电击会让敌人麻痹减速，被围住时用冲锋枪开路。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -453,6 +484,12 @@ function addPart(type, x, y, vx, vy, life, size, col, rot) {
   parts.push(o);
   return o;
 }
+/* 火苗粒子：o.z 记录火苗位图的变体序号（0~2） */
+function addFlame(x, y, vx, vy, life, size) {
+  const o = addPart('flame', x, y, vx, vy, life, size, '#FF8A1E');
+  if (o) o.z = (Math.random() * 3) | 0;
+  return o;
+}
 /* kind: 0 普通伤害(白)  1 暴击(大号黄)  2 持续伤害(橙) */
 function addText(x, y, val, kind, col, prefix) {
   let t;
@@ -488,7 +525,7 @@ function addBolt(list) {
       seg.push(px, py, qx, qy); px = qx; py = qy;
     }
   }
-  bolts.push({ seg, life: 0.14, max: 0.14 });
+  bolts.push({ seg, life: 0.22, max: 0.22 });
 }
 function toast(text, col) { toasts.push({ text, col, life: 2.6, max: 2.6 }); if (toasts.length > 4) toasts.shift(); }
 function announce(title, sub, col) { banner = { title, sub, col, life: 3, max: 3 }; }
@@ -506,6 +543,7 @@ function updateFx(dt) {
   for (let i = ghosts.length - 1; i >= 0; i--) { const g = ghosts[i]; g.life -= dt; if (g.life <= 0) ghosts.splice(i, 1); }
   for (let i = booms.length - 1; i >= 0; i--) { const b = booms[i]; b.t += dt; if (b.t >= b.max) booms.splice(i, 1); }
   for (let i = bolts.length - 1; i >= 0; i--) { const b = bolts[i]; b.life -= dt; if (b.life <= 0) bolts.splice(i, 1); }
+  for (let i = zaps.length - 1; i >= 0; i--) { const z = zaps[i]; z.t += dt; if (z.t >= z.max) zaps.splice(i, 1); }
   for (let i = decals.length - 1; i >= 0; i--) { const d = decals[i]; d.life -= dt; if (d.life <= 0) decals.splice(i, 1); }
   for (let i = toasts.length - 1; i >= 0; i--) { const t = toasts[i]; t.life -= dt; if (t.life <= 0) toasts.splice(i, 1); }
   if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
@@ -514,14 +552,22 @@ function updateFx(dt) {
 /* ============================================================
    玩家
    ============================================================ */
-function calcGun() {
-  const u = UPS, extra = Math.floor(u.shotgun.val);
+/* 第 i 把武器在当前升级加成下的实际数值。
+   升级对三把枪的加成方式：伤害 / 射速 / 穿透对全武器生效；"分裂弹头"给霰弹枪加弹丸、给其它两把加伤害；
+   "燃烧 / 电击附魔"给全武器加元素触发概率（霰弹枪、冲锋枪各自的本命元素成长更快） */
+function weaponStats(i) {
+  const W = WEAPONS[i], u = UPS, extra = Math.floor(u.shotgun.val), sg = i === 1, smg = i === 2;
   return {
-    pellets: 1 + extra, dmg: 13 * (1 + u.damage.val) * Math.pow(0.86, extra),
-    rate: 5.5 * (1 + u.firerate.val) * (player.frenzyT > 0 ? 2 : 1), pierce: Math.floor(u.pierce.val), cone: (3 + extra * 9) * DEG,
-    fireChance: u.fire.val ? Math.min(0.9, 0.22 + 0.15 * u.fire.val) : 0, burnDps: 5 * u.fire.val * (1 + u.damage.val),
-    shockChance: u.shock.val ? Math.min(0.85, 0.18 + 0.12 * u.shock.val) : 0, chains: 1 + Math.floor(u.shock.val / 2),
-    bulletSpeed: 860, life: 0.62 - Math.min(0.14, extra * 0.03)
+    pellets: W.pellets + (sg ? extra : 0),
+    dmg: W.dmg * (1 + u.damage.val + (sg ? 0 : 0.10 * extra)) * (sg ? Math.pow(0.9, extra) : 1),
+    rate: W.rate * (1 + u.firerate.val) * (player.frenzyT > 0 ? 2 : 1), pierce: Math.floor(u.pierce.val),
+    cone: (W.cone + (sg ? extra * 1.2 : 0)) * DEG,
+    fireChance: Math.min(0.85, W.fire + (sg ? 0.06 : 0.12) * u.fire.val),
+    burnDps: (8 + 4 * u.fire.val) * (1 + u.damage.val) * (sg ? 1.5 : 1),
+    shockChance: Math.min(0.6, W.shock + (smg ? 0.06 : 0.10) * u.shock.val),
+    chains: Math.min(5, W.chains + Math.floor(u.shock.val) + (smg ? 1 : 0)),   // 每级电击附魔多跳一次（最多 5 跳）；冲锋枪本命 +1 跳
+    critMul: W.critMul, bulletSpeed: W.speed, life: W.life, kb: W.kb, shake: W.shake, kick: W.kick, muzzle: W.muzzle,
+    magMax: Math.round(W.mag * (1 + 0.5 * u.firerate.val)), reload: W.reload
   };
 }
 
@@ -532,8 +578,10 @@ function recalcStats() {
   p.magnetR = 95 * (1 + u.magnet.val);
   const sm = 30 + 30 * u.shield.val; if (sm > p.shieldMax) p.shield += sm - p.shieldMax; p.shieldMax = sm; p.shieldRate = 14 + 5 * u.shield.val;
   const hm = 100 + 20 * u.maxhp.val; if (hm > p.hpMax) p.hp += hm - p.hpMax; p.hpMax = hm; p.regen = 0.35 * u.maxhp.val;
-  const mm = Math.round(24 * (1 + 0.5 * u.firerate.val)); if (mm > p.magMax && !p.reloading) p.mag += mm - p.magMax; p.magMax = mm;
-  p.hp = Math.min(p.hp, p.hpMax); p.shield = Math.min(p.shield, p.shieldMax); p.mag = Math.min(p.mag, p.magMax);
+  for (let i = 0; i < 3; i++) {   // 每把枪独立弹匣：容量变大时补上差额
+    const mm = weaponStats(i).magMax; if (mm > p.mmax[i] && p.rel[i] <= 0) p.ammo[i] += mm - p.mmax[i]; p.mmax[i] = mm; p.ammo[i] = Math.min(p.ammo[i], mm);
+  }
+  p.hp = Math.min(p.hp, p.hpMax); p.shield = Math.min(p.shield, p.shieldMax);
 }
 
 function heal(n) {
@@ -558,9 +606,20 @@ function tryDash() {
 }
 
 function startReload(manual) {
+  const p = player, i = p.weapon;
+  if (p.rel[i] > 0 || p.ammo[i] >= p.mmax[i] || !p.alive || p.swapT > 0) return;
+  p.rel[i] = gun.reload; SFX.reload();
+}
+
+/* 切换武器：to 为目标武器序号（越界自动循环）。换枪需要 0.22 秒，期间不能开火。
+   每把枪的弹匣和装填进度各自保留；装填只在手持时推进，所以"打空一把马上换另一把"是有效的战术 */
+function switchWeapon(to) {
   const p = player;
-  if (p.reloading || p.mag >= p.magMax || !p.alive) return;
-  p.reloading = true; p.reloadT = p.reloadMax; SFX.reload();
+  if (state !== ST.PLAY || !p.alive) return;
+  to = ((to % 3) + 3) % 3;
+  if (to === p.weapon) return;
+  p.prevW = p.weapon; p.weapon = to; p.swapT = 0.22; p.fireT = Math.max(p.fireT, 0.12); p.heat = 0;
+  gun = weaponStats(to); SFX.swap();
 }
 
 /* 瞄准：以准星方向为基准，在锥形范围内吸附最贴合的敌人 / 油桶 */
@@ -579,6 +638,7 @@ function updateAim(dt) {
   }
   for (let i = 0; i < solidsNear.length; i++) {
     const q = solidsNear[i]; if (q.type !== 'barrel') continue;
+    if (hyp(q.x - mouse.wx, q.y - mouse.wy) > 85) continue;   // 油桶：准星指到桶附近才算目标，避免开局莫名其妙打空弹匣
     const dx = q.x - p.x, dy = q.y - p.y, d2 = dx * dx + dy * dy; if (d2 > reach * reach) continue;
     const da = wrapA(Math.atan2(dy, dx) - base); if (Math.abs(da) > 26 * DEG) continue;
     const score = Math.abs(da) / (26 * DEG) + Math.sqrt(d2) / reach * 0.35 + 0.25;
@@ -589,47 +649,60 @@ function updateAim(dt) {
 }
 
 function fire() {
-  const p = player, g = gun, n = g.pellets;
-  p.mag--;
-  const cone = (g.cone + p.heat * 4 * DEG) * (mouse.down ? 1.5 : 1) * (p.moving ? 1.25 : 1);
-  const mx = p.x + Math.cos(p.aim) * 30, my = p.y + Math.sin(p.aim) * 30;
+  const p = player, g = gun, n = g.pellets, w = p.weapon, ca = Math.cos(p.aim), sa = Math.sin(p.aim);
+  p.ammo[w]--;
+  const cone = (g.cone + (w === 1 ? 0 : p.heat * 4 * DEG)) * (mouse.down ? 1.5 : 1) * (p.moving ? 1.25 : 1);
+  const mx = p.x + ca * g.muzzle, my = p.y + sa * g.muzzle;
   for (let i = 0; i < n; i++) {
-    const a = n === 1 ? p.aim + rand(-0.5, 0.5) * cone : p.aim + (-0.5 + i / (n - 1)) * cone * 1.6 + rand(-0.1, 0.1) * cone;
-    spawnBullet(mx, my, a);
+    const off = w === 1 ? (i % 2 ? 2.8 : -2.8) : 0;   // 双管霰弹枪：左右两根枪管交替出弹
+    spawnBullet(mx - sa * off, my + ca * off, p.aim + rand(-0.5, 0.5) * cone);
   }
-  p.recoil = 1; p.muzzle = 0.055; p.heat = Math.min(1, p.heat + 0.16); p.spread = cone / DEG;
-  addShake(0.9 + n * 0.18);
-  // 抛壳
-  const sa = p.aim + Math.PI / 2 + rand(-0.4, 0.4);
-  const sh = addPart('shell', p.x + Math.cos(p.aim) * 12, p.y + Math.sin(p.aim) * 12 - 4, Math.cos(sa) * rand(90, 150), Math.sin(sa) * rand(90, 150) - 30, rand(1.2, 2), 2, '#FFD23F', rand(TAU));
-  if (sh) { sh.z = 6; sh.vz = 150; }
-  SFX.shoot();
+  p.recoil = 1; p.muzzle = 0.055; p.heat = Math.min(1, p.heat + (w === 2 ? 0.09 : 0.16)); p.spread = cone / DEG;
+  addShake(g.shake);
+  // 抛壳（霰弹枪一次抛两枚红色弹壳）
+  for (let i = 0, sh; i < (w === 1 ? 2 : 1); i++) {
+    const a2 = p.aim + Math.PI / 2 + rand(-0.4, 0.4);
+    sh = addPart('shell', p.x + ca * 12, p.y + sa * 12 - 4, Math.cos(a2) * rand(90, 150), Math.sin(a2) * rand(90, 150) - 30, rand(1.2, 2), 2, w === 1 ? '#E8452C' : '#FFD23F', rand(TAU));
+    if (sh) { sh.z = 6; sh.vz = w === 1 ? 220 : 150; }
+  }
+  if (g.kick) {   // 高后坐力：把玩家往后顶，镜头跟着后蹬，并顿一帧增加分量
+    p.kbx -= ca * g.kick; p.kby -= sa * g.kick;
+    cam.kx = -ca * 9; cam.ky = -sa * 9; hitStop = Math.max(hitStop, 0.03);
+    for (let i = 0; i < 3; i++) addPart('smoke', mx - ca * 4, my - sa * 4, ca * rand(30, 90) - sa * rand(-30, 30), sa * rand(30, 90) + ca * rand(-30, 30), rand(0.3, 0.5), rand(4, 6.5), '#7A6A5A');
+  }
+  SFX.shoot(w);
 }
 
 function spawnBullet(x, y, a) {
   let b;
   if (bullets.length >= MAX_B) { b = bullets[0]; bullets[0] = bullets[bullets.length - 1]; bullets.pop(); }
   else b = bulletPool.pop() || { hits: [] };
-  const sp = gun.bulletSpeed * rand(0.96, 1.04), r = 3.2 + (gun.pierce ? 1 : 0) - (gun.pellets > 1 ? 0.4 : 0);
+  const w = player.weapon, sg = w === 1;
+  const sp = gun.bulletSpeed * (sg ? rand(0.88, 1.1) : rand(0.96, 1.04)), r = (sg ? 3.6 : w === 2 ? 2.7 : 3.2) + (gun.pierce ? 1 : 0);
   b.x = x; b.y = y; b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp; b.r = r; b.len = r * 2.7;
-  b.dmg = gun.dmg; b.pierce = gun.pierce; b.life = gun.life; b.fire = UPS.fire.val > 0; b.shock = UPS.shock.val > 0; b.dead = false;
+  b.dmg = gun.dmg; b.pierce = gun.pierce; b.life = gun.life * (sg ? rand(0.85, 1.1) : 1); b.kb = gun.kb; b.critMul = gun.critMul;
+  // 元素触发参数在出膛时定格：之后换枪或升级不影响已经飞出去的子弹
+  b.fire = gun.fireChance > 0; b.fireC = gun.fireChance; b.burnDps = gun.burnDps;
+  b.shock = gun.shockChance > 0; b.shockC = gun.shockChance; b.chains = gun.chains;
+  b.style = w; b.dead = false;
   b.hits.length = 0;
   bullets.push(b);
 }
 
 function updateShooting(dt) {
-  const p = player;
+  const p = player, i = p.weapon;
   if (p.muzzle > 0) p.muzzle -= dt;
   if (p.recoil > 0) p.recoil = Math.max(0, p.recoil - dt * 9);
   p.heat = Math.max(0, p.heat - dt * 1.5);
   p.spread = Math.max(0, p.spread - dt * 40);
   if (p.frenzyT > 0) p.frenzyT -= dt;
-  if (p.reloading) {
-    p.reloadT -= dt;
-    if (p.reloadT <= 0) { p.reloading = false; p.mag = p.magMax; SFX.reloadDone(); }
+  if (p.swapT > 0) return;   // 换枪中不能开火
+  if (p.rel[i] > 0) {        // 只有手持的武器在推进装填
+    p.rel[i] -= dt;
+    if (p.rel[i] <= 0) { p.rel[i] = 0; p.ammo[i] = p.mmax[i]; SFX.reloadDone(); }
     return;
   }
-  if (p.mag <= 0) { startReload(false); return; }
+  if (p.ammo[i] <= 0) { startReload(false); return; }
   if (!p.hasTarget && !mouse.down) { p.fireT = Math.min(p.fireT, 0.04); return; }   // 没有目标时不浪费子弹
   p.fireT -= dt;
   if (p.fireT <= 0) {
@@ -647,13 +720,14 @@ function updatePlayer(dt) {
   if (p.shieldDelay > 0) p.shieldDelay -= dt;
   else if (p.shield < p.shieldMax) p.shield = Math.min(p.shieldMax, p.shield + p.shieldRate * dt);
   if (p.dashCd > 0) p.dashCd -= dt;
+  if (p.swapT > 0) p.swapT -= dt;   // 换枪计时
 
   if (p.dashT > 0) {
     p.dashT -= dt;
     p.x += p.dashDx * DASH_SPEED * dt; p.y += p.dashDy * DASH_SPEED * dt;
     p.mvx = p.dashDx * 420; p.mvy = p.dashDy * 420; p.moving = true;
     p.ghostT -= dt;
-    if (p.ghostT <= 0) { p.ghostT = 0.022; ghosts.push({ x: p.x, y: p.y, aim: p.aim, walk: p.walk, life: 0.3, max: 0.3 }); }
+    if (p.ghostT <= 0) { p.ghostT = 0.022; ghosts.push({ x: p.x, y: p.y, aim: p.aim, walk: p.walk, w: p.weapon, life: 0.3, max: 0.3 }); }
     if (Math.random() < dt * 40) addPart('spark', p.x + rand(-6, 6), p.y + rand(-6, 6) + 6, -p.dashDx * rand(60, 160), -p.dashDy * rand(60, 160), 0.2, 2, '#5FF3FF');
     if (p.dashT <= 0) p.iframes = Math.max(p.iframes, 0.05);
   } else {
@@ -722,7 +796,7 @@ function spawnEnemy(type, x, y, elite) {
   e.dmg = T.dmg * dmgScale(); e.xp = T.xp * (elite ? 12 : 1);
   e.kbRes = elite ? Math.min(0.95, T.kbRes + 0.5) : T.kbRes; e.mass = T.mass * (elite ? 5 : 1);
   e.dead = false; e.elite = !!elite; e.flash = 0; e.spawnT = 0.25; e.kx = 0; e.ky = 0;
-  e.burnT = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.armT = 0; e.awayT = 0;
+  e.burnT = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.shockT = 0; e.armT = 0; e.awayT = 0;
   e.ang = Math.atan2(player.y - y, player.x - x); e.walk = rand(TAU); e.t = rand(TAU);
   e.wob = type === 0 ? rand(0.15, 0.45) : 0; e.wobF = rand(3, 6); e.wobP = rand(TAU);
   e.arming = false; e.dk = 2; e.vis = false;
@@ -774,20 +848,51 @@ function damageEnemy(e, dmg, crit, dx, dy, kbMul) {
   addText(e.x, e.y - e.r, dmg, crit ? 1 : 0, crit ? '#FFE23F' : '#FFFFFF');
   if (e.hp <= 0) killEnemy(e, dx, dy);
 }
-function ignite(e) { e.burnT = 3; e.burnDps = Math.max(e.burnDps, gun.burnDps); }
+/* 点燃：持续 3 秒灼烧（多个来源取最高的每秒伤害）。刚点着的瞬间窜起一团火苗 */
+function ignite(e, dps) {
+  if (e.burnT <= 0) {
+    for (let i = 0; i < 6; i++) addFlame(e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.6, rand(-40, 40), -rand(40, 110), rand(0.35, 0.6), rand(4, 7));
+    addWord('FWOOSH!', e.x, e.y - e.r - 14, '#FF8A1E', 24, 'ignite', 700); SFX.ignite();
+  }
+  e.burnT = 3; e.burnDps = Math.max(e.burnDps, dps);
+}
 
-/* 连锁闪电：从命中目标跳向最近的未命中敌人 */
-function chainLightning(src, base) {
+/* 电击命中：麻痹 0.3 秒（移动减速）+ 电火花 + 电光星 */
+function shock(e) {
+  e.shockT = 0.3; zaps.push({ x: e.x, y: e.y, t: 0, max: 0.16, rot: rand(TAU) });
+  for (let i = 0; i < 3; i++) { const a = rand(TAU), s = rand(90, 240); addPart('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.12, 0.25), 2, i % 2 ? '#5FF3FF' : '#FFFFFF'); }
+}
+
+/* 连锁闪电：命中的目标先被电到，再依次跳向最近的未命中敌人；被电到的敌人麻痹、抽搐、闪白 */
+function chainLightning(src, base, chains) {
   let from = src; const seen = [src], pts = [[src.x, src.y]];
-  for (let k = 0; k < gun.chains; k++) {
+  shock(src);
+  for (let k = 0; k < chains; k++) {
     let best = null, bd = 200 * 200;
     for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (e.dead || seen.indexOf(e) >= 0) continue; const d2 = (e.x - from.x) * (e.x - from.x) + (e.y - from.y) * (e.y - from.y); if (d2 < bd) { bd = d2; best = e; } }
     if (!best) break;
     seen.push(best); pts.push([best.x, best.y]);
     damageEnemy(best, base * 0.6, false, 0, 0, 0);
+    if (!best.dead) shock(best);
     from = best;
   }
   if (pts.length > 1) { addBolt(pts); addWord('ZAP!', from.x, from.y - 20, '#5FF3FF', 26, 'zap', 380); SFX.zap(); }
+}
+
+/* 火势蔓延：被烧死的敌人爆成一团火，身边 70px 内的敌人有一半概率被点燃（被子弹打死的不传火）。
+   火势靠灼烧伤害自己推进：每传一代灼烧伤害 ×0.6，基础状态传到第二代就烧不死满血的疯子，火自然熄灭；
+   点了燃烧附魔后每秒伤害更高，火势才传得更深、更快 */
+function fireSpread(e) {
+  for (let i = 0; i < 6; i++) addFlame(e.x + rand(-e.r, e.r), e.y + rand(-e.r, e.r) * 0.6, rand(-50, 50), -rand(50, 130), rand(0.4, 0.7), rand(4, 7.5));
+  for (let i = 0; i < 3; i++) addPart('spark', e.x, e.y, rand(-120, 120), -rand(60, 160), rand(0.3, 0.5), 1.8, '#FFD23F');
+  if (e.burnDps <= 2.5) return;
+  const r2 = 70 * 70;
+  for (let i = 0; i < enemies.length; i++) {
+    const o = enemies[i];
+    if (o.dead || o.burnT > 0) continue;
+    const d2 = (o.x - e.x) * (o.x - e.x) + (o.y - e.y) * (o.y - e.y);
+    if (d2 < r2 && Math.random() < 0.5) ignite(o, e.burnDps * 0.6);
+  }
 }
 
 function killEnemy(e, dx, dy) {
@@ -884,17 +989,20 @@ function updateEnemies(dt) {
     const e = enemies[i]; if (e.dead) continue;
     if (e.flash > 0) e.flash -= dt;
     if (e.spawnT > 0) e.spawnT -= dt;
-    // 燃烧：按 0.4s 结算一次持续伤害
+    if (e.shockT > 0) e.shockT -= dt;
+    // 燃烧：按 0.4s 结算一次持续伤害；身上不断窜出火苗和火星（粒子太多时降低火苗频率）
     if (e.burnT > 0) {
       e.burnT -= dt; e.burnAcc += e.burnDps * dt; e.burnTick -= dt;
-      if (Math.random() < dt * 9) addPart('flame', e.x + rand(-e.r, e.r) * 0.6, e.y + rand(-e.r, e.r) * 0.6, rand(-15, 15), -rand(25, 60), rand(0.25, 0.45), rand(3, 5.5), '#FF8A1E');
+      const bsc = e.scale * spawnScale(e);
+      if (Math.random() < dt * (parts.length > 260 ? 5 : 14)) addFlame(e.x + rand(-e.r, e.r) * 0.7 * bsc, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), -rand(30, 60), rand(0.35, 0.6), rand(3.5, 6) * bsc);
+      if (Math.random() < dt * 3) addPart('spark', e.x + rand(-e.r, e.r) * 0.6, e.y, rand(-30, 30), -rand(50, 110), rand(0.25, 0.45), 1.6, '#FFD23F');
       if (e.burnTick <= 0) {
         e.burnTick = 0.4; const d = e.burnAcc; e.burnAcc = 0; e.hp -= d; addText(e.x, e.y - e.r, d, 2, '#FF8A1E'); SFX.burn();
-        if (e.hp <= 0) { killEnemy(e, 0, -1); continue; }
+        if (e.hp <= 0) { killEnemy(e, 0, -1); fireSpread(e); continue; }   // 被烧死：爆成一团火并把火势传给身边的人
       }
     }
     let dx = p.x - e.x, dy = p.y - e.y; const d = hyp(dx, dy) || 1; dx /= d; dy /= d;
-    let sp = e.speed;
+    let sp = e.speed * (e.shockT > 0 ? (e.type === 2 ? 0.5 : 0.2) : 1);   // 被电到：麻痹减速（重装兵抗性更高）
     if (e.type === 1) {
       // 自爆矮人：进入 270px 后闪烁红光并加速
       if (p.alive && d < 270) e.arming = true;
@@ -943,14 +1051,14 @@ function separate() {
 }
 
 function onBulletHit(b, e) {
-  const crit = Math.random() < player.crit;
-  const sp = hyp(b.vx, b.vy);
-  damageEnemy(e, b.dmg * (crit ? 2.2 : 1), crit, b.vx / sp, b.vy / sp, 1);
+  const crit = Math.random() < player.crit, sp = hyp(b.vx, b.vy), hitCol = b.style === 1 ? '#FFB01E' : b.style === 2 ? '#9FF6FF' : crit ? '#FFE23F' : '#FFF6A0';
+  damageEnemy(e, b.dmg * (crit ? b.critMul : 1), crit, b.vx / sp, b.vy / sp, b.kb);
   if (crit) SFX.crit(); else SFX.hit();
-  for (let i = 0; i < 2; i++) addPart('spark', b.x, b.y, -b.vx * rand(0.1, 0.3) + rand(-90, 90), -b.vy * rand(0.1, 0.3) + rand(-90, 90), rand(0.12, 0.22), 2, crit ? '#FFE23F' : '#FFF6A0');
+  for (let i = 0; i < 2; i++) addPart('spark', b.x, b.y, -b.vx * rand(0.1, 0.3) + rand(-90, 90), -b.vy * rand(0.1, 0.3) + rand(-90, 90), rand(0.12, 0.22), 2, hitCol);
   if (crit) addWord('CRIT!', e.x + rand(-6, 6), e.y - e.r - 14, '#FFE23F', 28, 'crit', 260);
-  if (!e.dead && b.fire && Math.random() < gun.fireChance) ignite(e);
-  if (!e.dead && b.shock && Math.random() < gun.shockChance) chainLightning(e, b.dmg);
+  // 元素触发：用的是这发子弹出膛时的概率与强度
+  if (!e.dead && b.fire && Math.random() < b.fireC) ignite(e, b.burnDps);
+  if (!e.dead && b.shock && Math.random() < b.shockC) chainLightning(e, b.dmg, b.chains);
   if (b.pierce > 0) { b.pierce--; b.dmg *= 0.85; return; }   // 穿透：继续飞行，伤害衰减
   b.dead = true;
 }
@@ -991,7 +1099,8 @@ function updateBullets(dt) {
     const dx = b.vx * dt, dy = b.vy * dt, steps = Math.max(1, Math.ceil(hyp(dx, dy) / 14));
     let dead = false;
     for (let s = 0; s < steps && !dead; s++) { b.x += dx / steps; b.y += dy / steps; dead = bulletCollide(b); }
-    if (b.fire && Math.random() < 0.12) addPart('flame', b.x, b.y, rand(-10, 10), rand(-30, -5), 0.18, 2.5, '#FF8A1E');
+    if (b.style === 1 && Math.random() < 0.3) addFlame(b.x, b.y, rand(-10, 10), rand(-30, -5), 0.22, 2.2);            // 霰弹拖着小火苗
+    else if (b.style === 2 && Math.random() < 0.08) addPart('spark', b.x, b.y, rand(-60, 60), rand(-60, 60), 0.1, 1.5, '#9FF6FF');   // 电光弹偶尔迸出电火花
     if (!dead && (Math.abs(b.x - cam.x) > vw + 140 || Math.abs(b.y - cam.y) > vh + 140)) dead = true;   // 屏幕外子弹回收
     if (dead) poolKill(bullets, bulletPool, i);
   }
@@ -1098,14 +1207,14 @@ function startGame() {
   for (const k in UPS) { UPS[k].val = 0; UPS[k].lvl = 0; }
   player = newPlayer();
   stats = { kills: 0, damage: 0, crits: 0, maxCrit: 0, dmgTaken: 0, xp: 0, dashes: 0 };
-  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, ghosts, decals, toasts, solidsNear].forEach(a => { a.length = 0; });
+  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, zaps, ghosts, decals, toasts, solidsNear].forEach(a => { a.length = 0; });
   chunks.clear(); deadBarrels.clear();
   gameTime = 0; spawnT = 1.4; nextWaveT = 40; waveN = 0; nextBossT = 100; pendingLevels = 0; picking = null; hitStop = 0;
   hurtFlash = 0; whiteFlash = 0; speedT = 0; hintT = 14; xpCount = 0; banner = null;
   cam.x = player.x; cam.y = player.y; cam.shake = 0;
-  gun = calcGun(); state = ST.PLAY; uiRects.skip = null;
+  gun = weaponStats(0); state = ST.PLAY; uiRects.skip = null;
   Music.start();
-  announce('活下来。', 'WASD 移动 · 鼠标瞄准 · 空格 / 右键 冲刺', '#FFD23F');
+  announce('活下来。', 'WASD 移动 · 鼠标瞄准 · 1 / 2 / 3 或滚轮换枪 · 空格 / 右键 冲刺', '#FFD23F');
 }
 
 function handleKey(code) {
@@ -1116,6 +1225,7 @@ function handleKey(code) {
     if (code === 'Space' || code === 'ShiftLeft' || code === 'ShiftRight') tryDash();
     else if (code === 'KeyR') startReload(true);
     else if (code === 'KeyP' || code === 'Escape') setPause(true);
+    else if (DIGITS[code] !== undefined && DIGITS[code] <= 3) switchWeapon(DIGITS[code] - 1);   // 1 / 2 / 3 换枪（升级界面的选卡数字键在下面单独处理）
     return;
   }
   if (state === ST.LEVEL) { const n = DIGITS[code]; if (n !== undefined) chooseCard(n - 1); return; }
@@ -1461,21 +1571,24 @@ function drawDrop(d) {
 /* ============================================================
    子弹：拖尾 + 弹体 + 亮芯合成一张位图（三种元素颜色）
    ============================================================ */
-const BULLET_SPR = {};
+/* 三种弹体位图（拖尾 + 弹体 + 亮芯）：0 突击步枪（黄色长曳光）1 霰弹（橙红火焰弹头）2 元素冲锋枪（青色电光弹） */
+const BULLET_SPR = [];
 function buildBulletSprites() {
-  const mk = col => {
-    const w = 64, h = 20, R = 3, cv = mkCanvas(w * R, h * R), g = cv.getContext('2d');
+  const mk = (col, core, rx, ry, trail, tw) => {
+    const w = 64, h = 24, R = 3, cv = mkCanvas(w * R, h * R), g = cv.getContext('2d'), cy = h / 2, bx = 48;
     g.setTransform(R, 0, 0, R, 0, 0); g.lineCap = 'round'; g.lineJoin = 'round';
-    g.strokeStyle = col; g.globalAlpha = 0.4; g.lineWidth = 4.2; g.beginPath(); g.moveTo(4, h / 2); g.lineTo(41, h / 2); g.stroke(); g.globalAlpha = 1;
-    g.beginPath(); g.ellipse(47, h / 2, 8.6, 3.2, 0, 0, TAU); g.fillStyle = col; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke();
-    g.beginPath(); g.ellipse(47, h / 2, 4.4, 1.4, 0, 0, TAU); g.fillStyle = '#fff'; g.fill();
-    return { cv, w, h, ax: 47, ay: h / 2 };
+    g.strokeStyle = col; g.globalAlpha = 0.4; g.lineWidth = tw; g.beginPath(); g.moveTo(bx - rx - trail, cy); g.lineTo(bx - rx * 0.6, cy); g.stroke(); g.globalAlpha = 1;
+    g.beginPath(); g.ellipse(bx, cy, rx, ry, 0, 0, TAU); g.fillStyle = col; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke();
+    g.beginPath(); g.ellipse(bx + rx * 0.05, cy, rx * 0.5, ry * 0.42, 0, 0, TAU); g.fillStyle = core; g.fill();
+    return { cv, w, h, ax: bx, ay: cy, r: ry };
   };
-  BULLET_SPR.base = mk('#FFE45C'); BULLET_SPR.fire = mk('#FF8A1E'); BULLET_SPR.shock = mk('#5FF3FF');
+  BULLET_SPR[0] = mk('#FFE45C', '#FFFFFF', 8.6, 3.2, 36, 4.2);
+  BULLET_SPR[1] = mk('#FF7A1A', '#FFE45C', 7.2, 3.6, 22, 5.4);
+  BULLET_SPR[2] = mk('#5FF3FF', '#FFFFFF', 6.2, 2.7, 26, 3.4);
 }
 function drawBullets() {
   for (let i = 0; i < bullets.length; i++) {
-    const b = bullets[i], s = b.shock ? BULLET_SPR.shock : b.fire ? BULLET_SPR.fire : BULLET_SPR.base, k = b.r / 3.2;
+    const b = bullets[i], s = BULLET_SPR[b.style], k = b.r / s.r;
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
     ctx.drawImage(s.cv, -s.ax * k, -s.ay * k, s.w * k, s.h * k);
     ctx.restore();
@@ -1489,6 +1602,9 @@ function buildStaticSprites() {
   // 粒子 / 残影用到的全部颜色在启动时预生成，运行中不再新建画布
   for (const c of ['#4A3C32', '#7A6A5A', '#D9B377']) smokeSprite(c);
   for (const c of ['#C0281F', '#8F1510', '#E9CDA6', '#7B828A', '#E9A21B', '#F2C9A0', '#8C3B1E']) chunkSprite(c);
+  for (let v = 0; v < 3; v++) flameSprite(v);   // 火苗三种变体
+  zapSprite();
+  for (let w = 0; w < 3; w++) { gunIconSprite(w, '#231A12'); gunIconSprite(w, '#F4E9D3'); }   // 枪械侧视剪影（深 / 浅两色）
 }
 /* ============================================================
    角色矢量画法（粗黑描边 + 平涂阴影块 + 战损划痕）
@@ -1503,14 +1619,38 @@ function playerArm(g, sy, hx, hy, F, S) {
   g.strokeStyle = F(PPAL.jacket); g.lineWidth = 5; g.beginPath(); g.moveTo(-2, sy); g.lineTo(hx, hy); g.stroke();
   g.fillStyle = F(PPAL.skin); g.strokeStyle = S(); g.lineWidth = 2.2; circ(g, hx, hy, 3.6); g.fill(); g.stroke();
 }
-/* sil：剪影色（受击闪白 / 冲刺残影），为空则正常上色 */
-function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil) {
+/* 手持武器（俯视，枪口朝 +x）：0 突击步枪（长枪管 + 弹匣 + 木托）1 双管霰弹枪（两根粗枪管 + 木托）2 元素冲锋枪（短枪管 + 青色线圈 + 能量罐）
+   rx 为后坐位移；sil 为剪影色（冲刺残影 / 受击闪白），为空则正常上色 */
+function drawGun(g, w, rx, F, S, sil) {
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.strokeStyle = S(); g.lineWidth = 2.5;
+  if (w === 1) {
+    g.fillStyle = F('#6B4226'); rr(g, 2 + rx, -4, 11, 8, 2); g.fill(); g.stroke();                      // 木制机匣
+    g.fillStyle = F('#5E656D'); rr(g, 10 + rx, -5.6, 25, 4.6, 1.6); g.fill(); g.stroke();               // 上枪管
+    rr(g, 10 + rx, 1, 25, 4.6, 1.6); g.fill(); g.stroke();                                              // 下枪管
+    g.fillStyle = F('#111'); g.fillRect(33 + rx, -4.7, 1.6, 2.8); g.fillRect(33 + rx, 1.9, 1.6, 2.8);   // 两个枪口
+  } else if (w === 2) {
+    g.fillStyle = F('#33363D'); rr(g, 5 + rx, -5.5, 15, 11, 3); g.fill(); g.stroke();                   // 机匣
+    g.fillStyle = F('#4A4E57'); rr(g, 18 + rx, -2.4, 10, 4.8, 1.6); g.fill(); g.stroke();              // 短枪管
+    g.strokeStyle = sil || '#5FF3FF'; g.lineWidth = 2.2;                                             // 青色能量线圈
+    for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(19.5 + rx + i * 3, -3.6); g.lineTo(19.5 + rx + i * 3, 3.6); g.stroke(); }
+    g.fillStyle = sil || '#5FF3FF'; rr(g, 7.5 + rx, 4.5, 5, 6, 1.5); g.fill(); g.strokeStyle = S(); g.lineWidth = 1.8; g.stroke();   // 能量罐
+  } else {
+    g.fillStyle = F('#33363D'); rr(g, 2 + rx, -5.5, 14, 11, 2.5); g.fill(); g.stroke();                 // 机匣
+    g.fillStyle = F('#4A4E57'); rr(g, 14 + rx, -3, 21, 6, 2); g.fill(); g.stroke();                    // 枪管
+    g.fillStyle = F('#22252B'); rr(g, 7.5 + rx, 4, 5, 9, 1.5); g.fill(); g.lineWidth = 2; g.stroke();   // 弹匣
+    g.fillStyle = F('#6B4226'); rr(g, -3 + rx, -3.5, 6, 7, 1.5); g.fill(); g.stroke();                 // 枪托
+    g.strokeStyle = sil || '#FFD23F'; g.lineWidth = 2; g.beginPath(); g.moveTo(16 + rx, 0); g.lineTo(33 + rx, 0); g.stroke();   // 黄色条纹
+  }
+}
+
+/* sil：剪影色（受击闪白 / 冲刺残影），为空则正常上色；weapon：手持武器序号 */
+function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil, weapon) {
   const F = c => sil || c, S = () => sil || '#000';
   g.save(); g.translate(x, y); g.scale(scale, scale);
   if (!sil) { g.fillStyle = 'rgba(30,15,5,0.3)'; g.beginPath(); g.ellipse(0, 6, 15, 7, 0, 0, TAU); g.fill(); }
   g.rotate(aim);
   g.lineJoin = 'round'; g.lineCap = 'round';
-  const st = moving ? Math.sin(walk) * 7 : 0, rx = -recoil * 3.5;
+  const w = weapon || 0, st = moving ? Math.sin(walk) * 7 : 0, rx = -recoil * (w === 1 ? 6 : w === 2 ? 2.2 : 3.5);   // 霰弹枪后坐行程最大
   g.strokeStyle = S(); g.lineWidth = 2.5; g.fillStyle = F(PPAL.boot);
   for (let s = -1; s <= 1; s += 2) { rr(g, st * s - 5.5, s * 6.5 - 3.5, 11, 7, 3); g.fill(); g.stroke(); }
   // 躯干
@@ -1529,11 +1669,8 @@ function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil) {
   if (!sil) { g.strokeStyle = '#F4E9D3'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-5, -14); g.lineTo(-1, -10); g.moveTo(-3, 12); g.lineTo(1, 10); g.stroke(); }
   // 后手 → 枪 → 前手
   playerArm(g, 10.5, 12 + rx, 3.5, F, S);
-  g.strokeStyle = S(); g.lineWidth = 2.5; g.fillStyle = F(PPAL.gun); rr(g, 9 + rx, -3.5, 23, 7, 2); g.fill(); g.stroke();
-  g.fillStyle = F(PPAL.gunDark); rr(g, 3 + rx, -5.5, 13, 11, 2.5); g.fill(); g.stroke();
-  g.fillStyle = F(PPAL.mag); rr(g, 7.5 + rx, 4, 6, 8, 1.5); g.fill(); g.lineWidth = 2; g.stroke();
-  g.strokeStyle = sil || PPAL.stripe; g.lineWidth = 2; g.beginPath(); g.moveTo(15 + rx, 0); g.lineTo(29 + rx, 0); g.stroke();
-  playerArm(g, -10.5, 19 + rx, -1.5, F, S);
+  drawGun(g, w, rx, F, S, sil);
+  playerArm(g, -10.5, (w === 2 ? 15.5 : w === 1 ? 23 : 19) + rx, -1.5, F, S);   // 前手握在枪管 / 护木上
   // 头
   g.beginPath(); g.arc(1.5, 0, 8.5, 0, TAU); g.fillStyle = F(PPAL.skin); g.fill();
   if (!sil) {
@@ -1549,9 +1686,9 @@ function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil) {
 function drawPlayer() {
   const p = player;
   if (p.iframes > 0 && p.dashT <= 0 && Math.floor(uiT * 22) % 2 === 0) return;   // 受击无敌闪烁
-  drawPlayerBody(ctx, p.x, p.y, p.aim, p.walk, p.moving, p.recoil, 1, p.flash > 0 ? '#FFFFFF' : null);
+  drawPlayerBody(ctx, p.x, p.y, p.aim, p.walk, p.moving, p.recoil, 1, p.flash > 0 ? '#FFFFFF' : null, p.swapT > 0.11 ? p.prevW : p.weapon);   // 换枪前半段手里仍是旧枪
   if (p.muzzle > 0) {
-    const k = clamp(p.muzzle / 0.055, 0.2, 1), mx = p.x + Math.cos(p.aim) * 34, my = p.y + Math.sin(p.aim) * 34;
+    const wm = WEAPONS[p.weapon], k = clamp(p.muzzle / 0.055, 0.2, 1) * (p.weapon === 1 ? 1.8 : p.weapon === 2 ? 0.7 : 1), mx = p.x + Math.cos(p.aim) * wm.muzzle, my = p.y + Math.sin(p.aim) * wm.muzzle;   // 霰弹枪枪口火最大，冲锋枪最小
     ctx.save(); ctx.translate(mx, my); ctx.rotate(p.aim + (Math.floor(uiT * 60) % 2) * 0.26); ctx.scale(k, k);
     polyPath(ctx, MUZZLE_PTS); ctx.fillStyle = '#FFF6A0'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 2.5 / k; ctx.strokeStyle = '#000'; ctx.stroke();
     circ(ctx, 0, 0, 4); ctx.fillStyle = '#FFD23F'; ctx.fill();
@@ -1713,6 +1850,7 @@ function buildEnemySprites() {
 function buildFlashSprites() {
   for (let t = 0; t < 3; t++) {
     SPR.types[t].white = enemyAtlas(t, t === 2 ? 1 : 2, 1.5, '#FFFFFF');
+    SPR.types[t].fire = enemyAtlas(t, t === 2 ? 1 : 2, 1.5, '#FF7A1A');   // 燃烧：橙色剪影
     if (t === 1) SPR.types[t].red = enemyAtlas(1, 2, 1.5, '#FF3B2E');
   }
 }
@@ -1720,12 +1858,17 @@ function buildFlashSprites() {
 function drawEnemy(e) {
   const T = SPR.types[e.type], n = SPR.n, k = ((Math.round(e.ang / TAU * n) % n) + n) % n;
   const two = T.phases.length > 1, ph = two && Math.sin(e.walk) < 0 ? 1 : 0;
-  let A = T.phases[ph];
+  let A = T.phases[ph], jx = 0, jy = 0;
   if (e.flash > 0 && T.white) A = T.white[ph];   // 受击瞬间闪白
   else if (e.type === 1 && e.arming && T.red && Math.floor(uiT * (e.armT > 0.5 ? 22 : 12)) % 2 === 0) A = T.red[ph];   // 引信：红白交替闪烁
+  else if (e.shockT > 0 && T.white) {   // 被电到：高频闪白 + 抽搐
+    if (Math.floor(uiT * 40) % 2 === 0) A = T.white[ph];
+    jx = rand(-1.4, 1.4); jy = rand(-1.4, 1.4);
+  }
+  else if (e.burnT > 0 && T.fire && Math.floor(uiT * 9 + e.t) % 4 === 0) A = T.fire[ph];   // 燃烧：周期性闪橙
   const sc = e.scale * spawnScale(e), w = T.half * 2 * sc, u = w / A.cw, bb = A.bb[k], bw = bb[2] - bb[0], bh = bb[3] - bb[1];
   ctx.drawImage(A.cv, (k % SPR.cols) * A.cw + bb[0], Math.floor(k / SPR.cols) * A.cw + bb[1], bw, bh,
-    e.x - w / 2 + bb[0] * u, e.y - w / 2 - Math.abs(Math.sin(e.walk)) * 1.3 * sc + bb[1] * u, bw * u, bh * u);
+    e.x + jx - w / 2 + bb[0] * u, e.y + jy - w / 2 - Math.abs(Math.sin(e.walk)) * 1.3 * sc + bb[1] * u, bw * u, bh * u);
 }
 
 /* 所有敌人的地面投影合并成一次填充 */
@@ -1737,6 +1880,18 @@ function drawEnemyShadows() {
     ctx.moveTo(e.x + r, e.y + 5); ctx.ellipse(e.x, e.y + 5, r, r * 0.5, 0, 0, TAU);
   }
   ctx.fill();
+}
+
+/* 燃烧中的敌人脚下有一圈跳动的橙色火光（全部合并成一次填充） */
+function drawBurnGlows() {
+  ctx.fillStyle = 'rgba(255,138,30,0.3)'; ctx.beginPath(); let any = false;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (!e.vis || e.burnT <= 0) continue;
+    any = true;
+    const r = e.r * 1.6 * (1 + Math.sin(uiT * 18 + e.t) * 0.12);
+    ctx.moveTo(e.x + r, e.y + 4); ctx.ellipse(e.x, e.y + 4, r, r * 0.6, 0, 0, TAU);
+  }
+  if (any) ctx.fill();
 }
 
 function barW(x, y, w, h, frac, col) {
@@ -1785,6 +1940,28 @@ function smokeSprite(col) {
 function chunkSprite(col) {
   return cachedSprite('chk' + col, () => { const s = spriteCtx(8.5, 3), g = s.g; g.beginPath(); g.moveTo(-6.5, -4); g.lineTo(7.2, 0); g.lineTo(-2.6, 5.8); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = 1.3; g.strokeStyle = '#000'; g.stroke(); return s; });
 }
+/* 火苗位图：三种形状略有差异的漫画火舌（橙红外焰 + 黑描边 + 黄色内焰 + 白色焰心） */
+function flameSprite(v) {
+  return cachedSprite('flame' + v, () => {
+    const s = spriteCtx(10, 2.5), g = s.g, k = 1 + v * 0.1;
+    g.beginPath(); g.moveTo(0.4 * k, -9 * k); g.bezierCurveTo(4.6 * k, -3 * k, 6.6 * k, 1 * k, 4.3 * k, 4.7 * k); g.bezierCurveTo(2.6 * k, 7.2 * k, -2.9 * k, 7.2 * k, -4.5 * k, 4.5 * k); g.bezierCurveTo(-6.5 * k, 0.6 * k, -3.5 * k, -2.5 * k, -1.9 * k, -5.3 * k); g.bezierCurveTo(-0.9 * k, -3.4 * k, 0.1 * k, -5.8 * k, 0.4 * k, -9 * k); g.closePath();
+    g.fillStyle = v === 2 ? '#FF6A1E' : '#FF8A1E'; g.fill(); g.lineJoin = 'round'; g.lineWidth = 1.7; g.strokeStyle = '#000'; g.stroke();
+    g.beginPath(); g.moveTo(0.2 * k, -3.4 * k); g.bezierCurveTo(2.7 * k, -0.4 * k, 3.3 * k, 2.2 * k, 2.1 * k, 4.3 * k); g.bezierCurveTo(0.8 * k, 5.8 * k, -1.7 * k, 5.5 * k, -2.5 * k, 3.5 * k); g.bezierCurveTo(-3.3 * k, 1.2 * k, -1.3 * k, -0.7 * k, 0.2 * k, -3.4 * k); g.closePath();
+    g.fillStyle = '#FFE45C'; g.fill();
+    g.fillStyle = '#FFFBE0'; g.beginPath(); g.ellipse(0, 3 * k, 1.1 * k, 1.8 * k, 0, 0, TAU); g.fill();
+    return s;
+  });
+}
+/* 电光星位图：黑描边的青色尖刺星 + 白色亮心 */
+function zapSprite() {
+  return cachedSprite('zap', () => {
+    const s = spriteCtx(14, 2.5), g = s.g, pts = [];
+    for (let i = 0; i < 16; i++) { const a = i / 16 * TAU, v = i % 2 ? 0.36 : 1; pts.push([Math.cos(a) * 11.5 * v, Math.sin(a) * 11.5 * v]); }
+    polyPath(g, pts); g.fillStyle = '#5FF3FF'; g.fill(); g.lineJoin = 'round'; g.lineWidth = 1.8; g.strokeStyle = '#000'; g.stroke();
+    circ(g, 0, 0, 3.2); g.fillStyle = '#fff'; g.fill();
+    return s;
+  });
+}
 function drawParts() {
   ctx.lineCap = 'round';
   for (let i = 0; i < parts.length; i++) {
@@ -1794,8 +1971,8 @@ function drawParts() {
         ctx.globalAlpha = Math.min(1, k * 1.6); ctx.strokeStyle = o.col; ctx.lineWidth = o.size;
         ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x - o.vx * 0.03, o.y - o.vy * 0.03); ctx.stroke();
         break;
-      case 'flame':
-        ctx.globalAlpha = k; circ(ctx, o.x, o.y, o.size * k); ctx.fillStyle = o.col; ctx.fill();
+      case 'flame':   // 火苗位图（o.z 为形状变体），越烧越小并逐渐透明
+        blit(flameSprite(o.z || 0), o.x, o.y, o.size * (0.4 + 0.6 * k) / 8, Math.min(1, k * 1.8));
         break;
       case 'smoke':
         blit(smokeSprite(o.col), o.x, o.y, o.size * (1.7 - k * 0.7) / 11.5, Math.min(1, k * 1.8) * 0.9);
@@ -1866,10 +2043,11 @@ function drawBooms() {
 function drawBolts() {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (let i = 0; i < bolts.length; i++) {
-    const b = bolts[i], s = b.seg;
-    ctx.globalAlpha = Math.min(1, b.life / b.max * 2);
-    for (let pass = 0; pass < 3; pass++) {
-      ctx.lineWidth = pass === 0 ? 6.5 : pass === 1 ? 3.2 : 1.3; ctx.strokeStyle = pass === 0 ? '#000' : pass === 1 ? '#5FF3FF' : '#FFFFFF';
+    const b = bolts[i], s = b.seg, a = Math.min(1, b.life / b.max * 2);
+    for (let pass = 0; pass < 4; pass++) {   // 青色辉光 → 黑描边 → 青色电弧 → 白色亮芯
+      ctx.globalAlpha = pass === 0 ? a * 0.34 : a;
+      ctx.lineWidth = pass === 0 ? 18 : pass === 1 ? 7 : pass === 2 ? 3.8 : 1.7;
+      ctx.strokeStyle = pass === 0 ? '#3FD9FF' : pass === 1 ? '#000' : pass === 2 ? '#5FF3FF' : '#FFFFFF';
       ctx.beginPath();
       for (let j = 0; j < s.length; j += 4) { ctx.moveTo(s[j], s[j + 1]); ctx.lineTo(s[j + 2], s[j + 3]); }
       ctx.stroke();
@@ -1877,16 +2055,25 @@ function drawBolts() {
   }
   ctx.globalAlpha = 1;
 }
+/* 电击命中点的电光星：迅速放大并淡出 */
+function drawZaps() {
+  for (let i = 0; i < zaps.length; i++) {
+    const z = zaps[i], t = clamp(z.t / z.max, 0, 1);
+    ctx.save(); ctx.translate(z.x, z.y); ctx.rotate(z.rot + t * 0.8);
+    blit(zapSprite(), 0, 0, 0.5 + 1.3 * easeOut(t), 1 - t * t);
+    ctx.restore();
+  }
+}
 
 /* 冲刺残影：玩家剪影 × 12 个朝向 × 2 种颜色，启动时预生成 */
 const GHOST_SPR = [];
 function buildGhostSprites() {
-  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F'].map(col => { const sp = spriteCtx(26, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col); return sp; });
+  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F'].map(col => [0, 1, 2].map(w => { const sp = spriteCtx(30, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col, w); return sp; }));   // 残影跟随手持武器：12 朝向 × 2 色 × 3 把枪
 }
 function drawGhosts() {
   for (let i = 0; i < ghosts.length; i++) {
     const g = ghosts[i], k = ((Math.round(g.aim / TAU * 12) % 12) + 12) % 12;
-    blit(GHOST_SPR[k][i % 2], g.x, g.y, 1, (g.life / g.max) * 0.5);
+    blit(GHOST_SPR[k][i % 2][g.w || 0], g.x, g.y, 1, (g.life / g.max) * 0.5);
   }
 }
 /* ============================================================
@@ -2057,6 +2244,55 @@ function muteButtonSprite(muted, hover) {
   });
 }
 
+/* 枪械侧视剪影（枪口朝右）：用于武器槽和开始界面。col 为主色 */
+function gunIcon(g, w, cx, cy, k, col) {
+  g.save(); g.translate(cx, cy); g.scale(k, k); g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = 2; g.strokeStyle = '#000'; g.fillStyle = col;
+  if (w === 0) {            // 突击步枪：枪托 + 机匣 + 弹匣 + 长枪管 + 准星
+    rr(g, -30, -3, 11, 6, 1.5); g.fill(); g.stroke();
+    rr(g, -20, -5, 21, 8, 2); g.fill(); g.stroke();
+    rr(g, -13, 3, 6, 10, 1.5); g.fill(); g.stroke();
+    rr(g, 0, -3, 30, 5, 1.5); g.fill(); g.stroke();
+    rr(g, -4, -8.5, 8, 3, 1); g.fill(); g.stroke();
+  } else if (w === 1) {     // 双管霰弹枪：木托 + 上下两根枪管 + 护木
+    rr(g, -30, -4.5, 13, 10, 2); g.fill(); g.stroke();
+    rr(g, -18, -6, 48, 4.4, 1.6); g.fill(); g.stroke();
+    rr(g, -18, -0.4, 48, 4.4, 1.6); g.fill(); g.stroke();
+    rr(g, -12, 4.4, 11, 3.4, 1.2); g.fill(); g.stroke();
+  } else {                  // 元素冲锋枪：短机匣 + 短枪管 + 青色线圈 + 小弹匣
+    rr(g, -20, -6, 23, 12, 3); g.fill(); g.stroke();
+    rr(g, 2, -2.4, 16, 4.8, 1.6); g.fill(); g.stroke();
+    rr(g, -11, 6, 6, 8, 1.5); g.fill(); g.stroke();
+    g.strokeStyle = '#5FF3FF'; g.lineWidth = 1.8;
+    for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(5.5 + i * 3.4, -3.4); g.lineTo(5.5 + i * 3.4, 3.4); g.stroke(); }
+  }
+  g.restore();
+}
+function gunIconSprite(w, col) { return cachedSprite('gun|' + w + '|' + col, () => { const s = spriteCtx(36, UI_R()); gunIcon(s.g, w, 0, 0, 1.15, col); return s; }); }
+/* 元素概率标签，如 "火焰 40% · 电击 15%" */
+function elemText(g) {
+  const a = [];
+  if (g.fireChance > 0) a.push('火焰 ' + Math.round(g.fireChance * 100) + '%');
+  if (g.shockChance > 0) a.push('电击 ' + Math.round(g.shockChance * 100) + '%');
+  return a.join(' · ');
+}
+/* 武器槽位：枪械剪影 + 按键序号 + 元素标记；选中态为米黄底黄框（绘制时整体抬高） */
+function weaponSlotSprite(i, active) {
+  return cachedSprite('wslot|' + i + '|' + active, () => {
+    const s = spriteCtx(42, UI_R()), g = s.g, Wd = WEAPONS[i];
+    g.fillStyle = active ? '#F4E9D3' : 'rgba(35,26,18,0.88)'; rr(g, -36, -20, 72, 40, 8); g.fill();
+    g.lineWidth = active ? 4 : 3; g.strokeStyle = active ? '#FFD23F' : '#000'; g.stroke();
+    if (active) { g.lineWidth = 1.5; g.strokeStyle = '#000'; rr(g, -33, -17, 66, 34, 6); g.stroke(); }
+    g.globalAlpha = active ? 1 : 0.82; gunIcon(g, i, 5, -1, 0.92, active ? '#231A12' : '#F4E9D3'); g.globalAlpha = 1;
+    circ(g, -36, -18, 9); g.fillStyle = active ? '#FFD23F' : '#231A12'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = active ? '#000' : '#F4E9D3'; g.stroke();   // 按键序号
+    g.font = '900 12px ' + FONT_IMPACT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = active ? '#000' : '#F4E9D3'; g.fillText(String(i + 1), -36, -17.5);
+    if (Wd.elem) {   // 本命元素标记
+      circ(g, 31, 13, 8.5); g.fillStyle = '#231A12'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke();
+      drawIcon(Wd.elem, 31, 13, 5.5, Wd.elem === 'fire' ? '#FF8A1E' : '#5FF3FF', g);
+    }
+    return s;
+  });
+}
+
 function drawHUD(showTop) {
   const p = player;
   // 左上：徽记 + 生命 / 护盾
@@ -2083,14 +2319,15 @@ function drawHUD(showTop) {
   blit(muteButtonSprite(Snd.muted, ptInRect(mouse.x, mouse.y, m)), m.x + 19, m.y + 20);
   blit(cachedSprite('skull', () => { const s = spriteCtx(14, UI_R()); drawIcon('skull', 0, 0, 12, '#F4F1E8', s.g); return s; }), W - 40, 92);
   txt(fmtNum(stats.kills), W - 58, 92, 26, '#F4E9D3', 'right', 5, FONT_IMPACT);
-  // 左下：武器 / 弹药 / 已获得升级
-  const by = H - 22, ay2 = by - 66;
-  txt(GUN_NAME + (p.frenzyT > 0 ? '  [狂暴!]' : ''), 20, ay2 - 15, 14, '#F4E9D3', 'left', 4);
-  const frac = p.reloading ? 1 - p.reloadT / p.reloadMax : p.mag / p.magMax;
-  bar(20, ay2, 170, 14, frac, p.reloading ? '#F4F1E8' : '#FFD23F', p.reloading ? '#5FF3FF' : '#FFF2A8');
-  txt(p.reloading ? '装填中…' : p.mag + ' / ' + p.magMax, 202, ay2 + 7, 18, p.reloading ? '#5FF3FF' : '#F4E9D3', 'left', 4, FONT_IMPACT);
+  // 左下（自下而上）：武器槽（1 / 2 / 3 或滚轮切换）→ 当前武器名称 + 元素概率 → 弹药 → 已获得升级
+  const wi = p.weapon, rl = p.rel[wi] > 0, by = H - 22, et = elemText(gun);
+  for (let i = 0; i < 3; i++) blit(weaponSlotSprite(i, i === wi), 56 + i * 78, by - 22 - (i === wi ? 6 : 0));
+  txt(WEAPONS[wi].name + (et ? '  ·  ' + et : '') + (p.frenzyT > 0 ? '  [狂暴!]' : ''), 20, by - 58, 14, '#F4E9D3', 'left', 4);
+  const frac = rl ? 1 - p.rel[wi] / gun.reload : p.ammo[wi] / p.mmax[wi];
+  bar(20, by - 80, 232, 14, frac, rl ? '#F4F1E8' : '#FFD23F', rl ? '#5FF3FF' : '#FFF2A8');
+  txt(rl ? '装填中…' : p.ammo[wi] + ' / ' + p.mmax[wi], 260, by - 73, 18, rl ? '#5FF3FF' : '#F4E9D3', 'left', 4, FONT_IMPACT);
   let n = 0;
-  for (const k in UPS) { const u = UPS[k]; if (u.lvl) blit(upgradeBoxSprite(k, u), 37 + n * 40, by - 17); n++; }
+  for (const k in UPS) { const u = UPS[k]; if (u.lvl) blit(upgradeBoxSprite(k, u), 37 + n * 40, by - 104); n++; }
   // 右下：冲刺冷却
   const dx = W - 50, dy = H - 56, ready = p.dashCd <= 0 && p.dashT <= 0;
   circ(ctx, dx, dy, 25); ctx.fillStyle = '#231A12'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
@@ -2112,7 +2349,7 @@ function drawHUD(showTop) {
   // 开局操作提示
   if (hintT > 0) {
     ctx.globalAlpha = clamp(hintT / 2, 0, 1);
-    txt('WASD 移动 · 鼠标瞄准 · 空格 / 右键 冲刺无敌 · R 装填', W / 2, H - 100, 17, '#F4E9D3', 'center', 5);
+    txt('WASD 移动 · 鼠标瞄准 · 1 / 2 / 3 或滚轮 换枪 · 空格 / 右键 冲刺无敌 · R 装填', W / 2, H - 172, 17, '#F4E9D3', 'center', 5);
     ctx.globalAlpha = 1;
   }
   // 波次 / 警告横幅（升级界面不显示）
@@ -2148,11 +2385,24 @@ function drawStart() {
   ctx.fillStyle = '#E8452C'; rr(ctx, -58, -17, 116, 34, 6); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
   txt('弹幕幸存者', 0, 1, 17, '#fff', 'center', 4);
   ctx.restore();
-  // 角色预览：枪口跟随鼠标
-  const px = W / 2, py = H * 0.52, ps = clamp(Math.min(W, H) / 330, 2, 2.9);
-  drawPlayerBody(ctx, px, py, Math.atan2(mouse.y - py, mouse.x - px), t * 5, false, 0, ps, null);
+  // 角色预览：枪口跟随鼠标，每 2.4 秒轮换展示一把武器
+  const px = W / 2, py = H * 0.485, ps = clamp(Math.min(W, H) / 330, 2, 2.9), showW = Math.floor(t / 2.4) % 3;
+  drawPlayerBody(ctx, px, py, Math.atan2(mouse.y - py, mouse.x - px), t * 5, false, 0, ps, null, showW);
+  // 武器介绍：三张小卡，与角色手里的枪同步高亮
+  const cw = Math.min(250, (W - 80) / 3 - 20);
+  for (let i = 0; i < 3; i++) {
+    const on = i === showW, Wd = WEAPONS[i], kk = on ? 1.05 : 0.96;
+    ctx.save(); ctx.translate(W / 2 + (i - 1) * (cw + 20), H * 0.62); ctx.rotate((i - 1) * 0.02); ctx.scale(kk, kk);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; rr(ctx, -cw / 2 + 4, -21, cw, 54, 8); ctx.fill();
+    ctx.fillStyle = on ? '#F4E9D3' : 'rgba(244,233,211,0.8)'; rr(ctx, -cw / 2, -27, cw, 54, 8); ctx.fill(); ctx.lineWidth = on ? 4 : 3; ctx.strokeStyle = on ? '#FFD23F' : '#000'; ctx.stroke();
+    blit(gunIconSprite(i, '#231A12'), -cw / 2 + 38, -9, 0.88);
+    txt('按 ' + (i + 1), -cw / 2 + 38, 17, 12, '#7A5A2A', 'center', 0);
+    txt(Wd.short, -cw / 2 + 84, -10, 15, '#000', 'left', 0);
+    txt(Wd.trait, -cw / 2 + 84, 9, 11, Wd.elem === 'fire' ? '#D9481C' : Wd.elem === 'shock' ? '#0E8FB8' : '#3A2E20', 'left', 0);
+    ctx.restore();
+  }
   // 操作说明
-  keyRow([['W A S D', '移动'], ['鼠标', '瞄准'], ['左键', '按住扫射'], ['空格 / 右键', '冲刺翻滚'], ['R', '装填'], ['P', '暂停']], W / 2, H * 0.665);
+  keyRow([['W A S D', '移动'], ['鼠标', '瞄准'], ['左键', '按住扫射'], ['1 / 2 / 3 · 滚轮', '换枪'], ['空格 / 右键', '冲刺翻滚'], ['R', '装填'], ['P', '暂停']], W / 2, H * 0.725);
   // 开始按钮
   const bw = 300, bh = 70, byy = H * 0.81;
   uiRects.start = { x: W / 2 - bw / 2, y: byy - bh / 2, w: bw, h: bh };
@@ -2317,11 +2567,11 @@ function drawOver() {
    光标 / 冲刺速度线 / 调试信息
    ============================================================ */
 function drawCrosshair(x, y) {
-  const p = player, gap = 8 + clamp(p.spread, 0, 30) * 0.7, len = 9, R = gap + len + 8;
-  const col = p.reloading ? '#FFFFFF' : p.hasTarget ? '#FF4A36' : '#FFE23F';
+  const p = player, wi = p.weapon, rl = p.rel[wi] > 0, gap = 8 + clamp(p.spread, 0, 30) * 0.7, len = 9, R = gap + len + 8;   // 霰弹枪扩散大 → 准星张得更开
+  const col = rl ? '#FFFFFF' : p.hasTarget ? '#FF4A36' : '#FFE23F';
   ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.save();
-  if (p.reloading) ctx.rotate(uiT * 6);
+  if (rl) ctx.rotate(uiT * 6);
   for (let i = 0; i < 4; i++) {   // 随射击 / 移动扩散的刻线
     const c = Math.cos(i * Math.PI / 2), s = Math.sin(i * Math.PI / 2);
     ctx.beginPath(); ctx.moveTo(c * gap, s * gap); ctx.lineTo(c * (gap + len), s * (gap + len));
@@ -2329,12 +2579,13 @@ function drawCrosshair(x, y) {
   }
   ctx.restore();
   circ(ctx, 0, 0, 2.2); ctx.fillStyle = '#000'; ctx.fill(); circ(ctx, 0, 0, 1.1); ctx.fillStyle = col; ctx.fill();
-  const frac = p.reloading ? 1 - p.reloadT / p.reloadMax : p.mag / p.magMax;   // 外圈：弹药量 / 装弹进度
+  const frac = rl ? 1 - p.rel[wi] / gun.reload : p.ammo[wi] / p.mmax[wi];   // 外圈：当前武器的弹药量 / 装弹进度
   ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; circ(ctx, 0, 0, R); ctx.stroke();
-  ctx.lineWidth = 2.8; ctx.strokeStyle = p.reloading ? '#5FF3FF' : '#FFD23F';
+  ctx.lineWidth = 2.8; ctx.strokeStyle = rl ? '#5FF3FF' : '#FFD23F';
   ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(frac, 0, 1)); ctx.stroke();
   ctx.restore();
-  if (p.reloading) txt('装填中', x, y + R + 16, 13, '#5FF3FF', 'center', 4);
+  if (rl) txt('装填中', x, y + R + 16, 13, '#5FF3FF', 'center', 4);
+  else if (p.swapT > 0) txt('换枪中', x, y + R + 16, 13, '#F4E9D3', 'center', 4);
 }
 
 function drawCursor() {
@@ -2394,6 +2645,7 @@ function update(dt) {
   // 屏幕震动（位移 + 轻微旋转），线性衰减
   if (cam.shake > 0) { cam.shake = Math.max(0, cam.shake - dt * 34); cam.sx = rand(-cam.shake, cam.shake); cam.sy = rand(-cam.shake, cam.shake); cam.rot = rand(-cam.shake, cam.shake) * 0.0011; }
   else { cam.sx = cam.sy = cam.rot = 0; }
+  const kc = Math.exp(-dt * 14); cam.kx *= kc; cam.ky *= kc;   // 霰弹枪后坐力的镜头后蹬回弹
   if (hurtFlash > 0) hurtFlash = Math.max(0, hurtFlash - dt * 2.4);
   if (whiteFlash > 0) whiteFlash = Math.max(0, whiteFlash - dt * 2.2);
   if (speedT > 0) speedT -= dt;
@@ -2408,7 +2660,7 @@ function update(dt) {
     let sdt = dt;
     if (hitStop > 0) { hitStop -= dt; sdt = dt * 0.1; }   // 顿帧：爆炸 / 爆头瞬间的时间拉伸
     if (!player.alive) sdt = dt * 0.3;                     // 死亡慢镜头
-    gun = calcGun();
+    gun = weaponStats(player.weapon);
     updateWorld(sdt);
     updateFx(sdt);
     if (!player.alive) { deathT -= dt; if (deathT <= 0) { state = ST.OVER; overT = 0; uiRects.over = null; Music.stop(); } }
@@ -2439,18 +2691,19 @@ function render() {
   uiHover = false;
   // ---- 世界层（镜头：缩放 + 震动位移 + 震动旋转）----
   ctx.save();
-  ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot); ctx.scale(ZOOM, ZOOM); ctx.translate(-cam.x + cam.sx, -cam.y + cam.sy);
+  ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot); ctx.scale(ZOOM, ZOOM); ctx.translate(-cam.x + cam.sx + cam.kx, -cam.y + cam.sy + cam.ky);
   const x0 = cam.x - vw - 90, y0 = cam.y - vh - 90, x1 = cam.x + vw + 90, y1 = cam.y + vh + 90;
   drawGround(x0, y0, x1, y1);
   drawDecals();
   drawGhosts();
   drawEnemyShadows();
+  drawBurnGlows();
   for (let i = 0; i < drawList.length; i++) {
     const o = drawList[i];
     if (o.dk === 1) drawPropCached(o); else if (o.dk === 2) drawEnemy(o); else if (o.dk === 3) drawPlayer(); else drawDrop(o);
   }
   drawEnemyOverlays();
-  drawBooms(); drawBolts(); drawBullets(); drawParts(); drawTexts(); drawWords(false);
+  drawBooms(); drawBolts(); drawZaps(); drawBullets(); drawParts(); drawTexts(); drawWords(false);
   ctx.restore();
   // ---- 屏幕层 ----
   if (speedT > 0) drawSpeedLines(speedT / 0.22);
@@ -2502,6 +2755,8 @@ window.__wm = {
   hurt(n) { hurtPlayer(n, player.x + 40, player.y, true); },
   pick: chooseCard,
   up(key, ri) { applyUpgrade(key, ri === undefined ? 0 : ri); },
+  weapon(i) { if (i === undefined) return player.weapon; switchWeapon(i); },   // 不传参数返回当前武器序号；传 0/1/2 切换
+  gun: () => gun,                                                             // 当前武器的实际数值
   tick(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 60); render(); }   // 手动推帧（不依赖 requestAnimationFrame）
 };
 
@@ -2511,8 +2766,8 @@ function warmup() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   ctx.font = 'italic 900 17px ' + FONT_IMPACT; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.fillStyle = '#fff';
   ctx.strokeText('0123456789', 60, 40); ctx.fillText('0123456789', 60, 40);
-  comicText('BOOM! CRIT! 12 升级！第 波 已暂停 敌 来袭', W / 2, H / 2, 42, '#FFD23F', 8, 5);
-  txt('护盾 100 / 100 冲刺就绪 装填中 0123456789', W / 2, H / 2 + 60, 16, '#fff', 'center', 4);
+  comicText('BOOM! CRIT! FWOOSH! ZAP! 12 升级！第 波 已暂停 敌 来袭', W / 2, H / 2, 42, '#FFD23F', 8, 5);
+  txt('护盾 100 / 100 冲刺就绪 装填中 换枪中 火焰 40% 电击 30% 0123456789', W / 2, H / 2 + 60, 16, '#fff', 'center', 4);
   txt('00:00 LV 12', W / 2, H / 2 + 90, 24, '#fff', 'center', 4, FONT_IMPACT);
   spaced('WASTELAND MAYHEM', W / 2, H / 2 + 130, 24, '#fff', 6);
   for (const id of ['shotgun', 'firerate', 'pierce', 'fire', 'shock', 'damage', 'speed', 'magnet', 'crit', 'shield', 'maxhp', 'dashcd', 'heal', 'nuke', 'frenzy', 'vault', 'skull']) drawIcon(id, W / 2, H / 2 + 180, 12, '#FFD23F');
