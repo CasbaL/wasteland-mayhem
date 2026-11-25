@@ -149,6 +149,23 @@ const SFX = {
   select() { if (!this.ok()) return; Snd.tone({ type: 'square', f0: 880, dur: 0.08, vol: 0.12 }); Snd.tone({ type: 'sine', f0: 1320, dur: 0.14, vol: 0.12, delay: 0.05 }); },
   loot() { if (!this.ok()) return; [392, 523, 659, 784, 1046, 1318].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, dur: 0.14, vol: 0.15, delay: i * 0.07 })); },
   wave() { if (!this.ok()) return; Snd.tone({ type: 'sawtooth', f0: 110, f1: 220, dur: 0.5, vol: 0.16, lp: 900 }); Snd.tone({ type: 'sawtooth', f0: 110, f1: 220, dur: 0.5, vol: 0.16, lp: 900, delay: 0.25 }); },
+  /* 第三轮新增的音效：弹射 / 火箭 / 锁定 / 掷枪 / 双持 / 腐蚀 / 新星 / 倒地 / 复活 / 紫渣 */
+  ping() { if (!this.ok() || !Snd.gate('ping', 70)) return; Snd.tone({ type: 'sine', f0: 2600, f1: 3400, dur: 0.09, vol: 0.12 }); Snd.tone({ type: 'triangle', f0: 5200, f1: 4600, dur: 0.05, vol: 0.05 }); },
+  rocket() { if (!this.ok() || !Snd.gate('rocket', 60)) return; Snd.noise({ dur: 0.22, vol: 0.26, type: 'lowpass', f0: 2400, f1: 200 }); Snd.tone({ type: 'sine', f0: 110, f1: 44, dur: 0.2, vol: 0.26 }); },
+  blast() { if (!this.ok() || !Snd.gate('blast', 70)) return; Snd.noise({ dur: 0.14, vol: 0.24, type: 'lowpass', f0: 2000, f1: 160 }); Snd.tone({ type: 'sine', f0: 96, f1: 40, dur: 0.14, vol: 0.26 }); },
+  lock() { if (!this.ok()) return; Snd.tone({ type: 'square', f0: 880, dur: 0.05, vol: 0.09 }); Snd.tone({ type: 'square', f0: 1320, dur: 0.09, vol: 0.09, delay: 0.06 }); },
+  throwGun() { if (!this.ok()) return; Snd.noise({ dur: 0.2, vol: 0.2, type: 'bandpass', f0: 600, f1: 2800, q: 1.2 }); },
+  gunzerk() {
+    if (!this.ok()) return;
+    Snd.tone({ type: 'sawtooth', f0: 160, f1: 90, dur: 0.6, vol: 0.2, lp: 1200 }); Snd.noise({ dur: 0.5, vol: 0.2, type: 'bandpass', f0: 400, f1: 1600, q: 0.8 });
+    [440, 554, 659].forEach((f, i) => Snd.tone({ type: 'square', f0: f, dur: 0.12, vol: 0.08, delay: 0.1 + i * 0.08 }));
+  },
+  hiss() { if (!this.ok() || !Snd.gate('hiss', 260)) return; Snd.noise({ dur: 0.32, vol: 0.12, type: 'highpass', f0: 3000, f1: 5200 }); },
+  slag() { if (!this.ok() || !Snd.gate('slag', 90)) return; Snd.tone({ type: 'sine', f0: 300, f1: 160, dur: 0.08, vol: 0.1 }); Snd.noise({ dur: 0.08, vol: 0.06, type: 'lowpass', f0: 900 }); },
+  nova() { if (!this.ok()) return; Snd.tone({ type: 'sine', f0: 220, f1: 40, dur: 0.5, vol: 0.45 }); Snd.noise({ dur: 0.4, vol: 0.3, type: 'highpass', f0: 1800, f1: 400 }); Snd.tone({ type: 'square', f0: 1500, f1: 300, dur: 0.2, vol: 0.1 }); },
+  down() { if (!this.ok()) return; [392, 330, 262, 196].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, f1: f * 0.94, dur: 0.3, vol: 0.16, delay: i * 0.16 })); },
+  revive() { if (!this.ok()) return; [392, 523, 659, 784, 1046].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, dur: 0.22, vol: 0.18, delay: i * 0.07 })); Snd.noise({ dur: 0.5, vol: 0.2, type: 'bandpass', f0: 800, f1: 3200, q: 0.7 }); },
+  vault() { if (!this.ok() || !Snd.gate('vault', 1500)) return; [523, 784, 1046, 1318].forEach((f, i) => Snd.tone({ type: 'sine', f0: f, dur: 0.25, vol: 0.14, delay: i * 0.06 })); },
   death() { if (!this.ok()) return; [440, 370, 311, 220].forEach((f, i) => Snd.tone({ type: 'sawtooth', f0: f, f1: f * 0.8, dur: 0.3, vol: 0.16, lp: 1200, delay: i * 0.18 })); }
 };
 
@@ -256,6 +273,7 @@ const parts = [], partPool = [];
 const texts = [], textPool = [];
 const words = [], wordPool = [];
 const drops = [];
+const tracers = [], throws = [];   // tracers：雅各布斯弹射的金色弹道 · throws：泰迪尔掷出的枪
 const fuses = [], booms = [], bolts = [], zaps = [], ghosts = [], decals = [], toasts = [];   // zaps：电击命中点的电光星
 const drawList = [], solidsNear = [];
 let boxCount = 0;   // solidsNear 里集装箱的数量（为 0 时敌人跳过绕行计算）
@@ -268,34 +286,67 @@ function newPlayer() {
     weapon: 0, prevW: 0, swapT: 0, ammo: WEAPONS.map(w => w.mag), mmax: WEAPONS.map(w => w.mag), rel: [0, 0, 0], fireT: 0, heat: 0, spread: 0, recoil: 0, muzzle: 0, muzV: 0, flash: 0,   // muzzle 枪口焰剩余秒数 · muzV 枪口焰变体序号；// 每把枪独立弹匣 ammo / 容量 mmax / 剩余装填秒数 rel（0 = 未在装填）
     iframes: 0, dashT: 0, dashCd: 0, dashCdMax: DASH_CD, dashDx: 1, dashDy: 0, ghostT: 0, frenzyT: 0,
     level: 1, xp: 0, xpNext: xpNeed(1), crit: 0.05, magnetR: 95, alive: true,
-    hpGhost: 100, hpGhostT: 0, shGhost: 30 };   // 血条 / 护盾条的"掉血残影"值，以及残影开始追赶前的停留秒数
+    hpGhost: 100, hpGhostT: 0, shGhost: 30,
+    hypT: 0, hypGap: 9, hypLock: false, gunzT: 0, gzKills: 0, novaCd: 0, shieldDelayMax: 4, swT: 0, swUsed: false,
+    blood: 0, bloodT: 9, bloodDecay: 0, bloodGhostT: 0 };   // 词条状态：亥伯龙连射计时 / 双持狂暴 / 新星冷却 / 殊死一搏 / 狂热层数   // 血条 / 护盾条的"掉血残影"值，以及残影开始追赶前的停留秒数
 }
 let player = newPlayer();
 
-const RARITY = [
-  { name: '普通', col: '#EDEDED', mult: 1 },
-  { name: '稀有', col: '#4DB5FF', mult: 1.5 },
-  { name: '史诗', col: '#C46BFF', mult: 2.2 },
-  { name: '传说', col: '#FF9A1F', mult: 3.5 }
+/* 升级卡池：10 张基础属性 + 12 个《无主之地》风格词条。
+   tier 决定卡片边框色：0 基础属性（绿）· 1 元素 / 厂牌机制（亮蓝）· 2 核心质变词条（传奇橙 #FF8C00）；w 为抽卡权重
+   tag：卡片右上角的英文厂牌 / 元素角标 · base / cap / val / lvl：每级增量、等级上限、当前数值、当前等级
+   lines(l)：升到第 l 级后的数值行 [名称, 数值]，显示在卡片底部 */
+const TIER = [
+  { name: '基础属性', col: '#2FB344', w: 1.0 },
+  { name: '元素 · 厂牌', col: '#35B9FF', w: 0.9 },
+  { name: '传 奇', col: '#FF8C00', w: 0.5 }
 ];
+const TYPE_NAME = { weapon: '武器', passive: '被动', skill: '技能', element: '元素', shield: '护盾' };
+const pc = v => Math.round(v * 100) + '%';
 const UPS = {
-  shotgun: { name: '分裂弹头', type: 'weapon', desc: '霰弹枪 +1 弹丸，其它枪伤害 +10%', base: 1, cap: 6, val: 0, lvl: 0 },
-  firerate: { name: '射速提升', type: 'weapon', desc: '射击速度 +14%，弹匣同步扩容', base: 0.14, cap: 2.0, val: 0, lvl: 0 },
-  pierce: { name: '穿透子弹', type: 'weapon', desc: '子弹可额外穿透 1 名敌人', base: 1, cap: 5, val: 0, lvl: 0 },
-  fire: { name: '燃烧附魔', type: 'weapon', desc: '全武器概率点燃，灼烧伤害提升', base: 1, cap: 5, val: 0, lvl: 0 },
-  shock: { name: '电击附魔', type: 'weapon', desc: '全武器概率连锁闪电，并多跳一次', base: 1, cap: 5, val: 0, lvl: 0 },
-  damage: { name: '伤害强化', type: 'weapon', desc: '所有子弹伤害 +15%', base: 0.15, cap: 3.0, val: 0, lvl: 0 },
-  speed: { name: '肾上腺素', type: 'passive', desc: '移动速度 +8%', base: 0.08, cap: 0.64, val: 0, lvl: 0 },
-  magnet: { name: '磁吸力场', type: 'passive', desc: '经验晶体与补给的拾取范围 +45%', base: 0.45, cap: 2.7, val: 0, lvl: 0 },
-  crit: { name: '致命瞄准', type: 'passive', desc: '暴击率 +8%，暴击伤害 ×2.2', base: 0.08, cap: 0.75, val: 0, lvl: 0 },
-  shield: { name: '护盾增压', type: 'passive', desc: '护盾上限 +30，回复速度提升', base: 1, cap: 7, val: 0, lvl: 0 },
-  maxhp: { name: '肌肉强化', type: 'passive', desc: '生命上限 +20 并回血，获得缓慢再生', base: 1, cap: 8, val: 0, lvl: 0 },
-  dashcd: { name: '冲刺强化', type: 'passive', desc: '冲刺冷却 -15%，无敌时间延长', base: 1, cap: 6, val: 0, lvl: 0 }
+  // ---------------- 基础属性 ----------------
+  shotgun: { name: '分裂弹头', type: 'weapon', tier: 0, desc: '霰弹枪 +1 弹丸，其它枪伤害 +10%', base: 1, cap: 6, val: 0, lvl: 0, lines: l => [['霰弹枪弹丸', '+' + l], ['其它枪伤害', '+' + 10 * l + '%']] },
+  firerate: { name: '射速提升', type: 'weapon', tier: 0, desc: '射击速度 +14%，弹匣同步扩容', base: 0.14, cap: 2.0, val: 0, lvl: 0, lines: l => [['射击速度', '+' + Math.round(14 * l) + '%'], ['弹匣容量', '+' + Math.round(7 * l) + '%']] },
+  pierce: { name: '穿透子弹', type: 'weapon', tier: 0, desc: '子弹可额外穿透 1 名敌人', base: 1, cap: 5, val: 0, lvl: 0, lines: l => [['额外穿透', l + ' 名敌人']] },
+  damage: { name: '伤害强化', type: 'weapon', tier: 0, desc: '所有子弹伤害 +15%', base: 0.15, cap: 3.0, val: 0, lvl: 0, lines: l => [['子弹伤害', '+' + 15 * l + '%']] },
+  speed: { name: '轻装疾跑', type: 'passive', tier: 0, desc: '移动速度 +8%', base: 0.08, cap: 0.64, val: 0, lvl: 0, lines: l => [['移动速度', '+' + 8 * l + '%']] },
+  magnet: { name: '磁吸力场', type: 'passive', tier: 0, desc: '经验晶体与补给的拾取范围 +45%', base: 0.45, cap: 2.7, val: 0, lvl: 0, lines: l => [['拾取范围', '+' + 45 * l + '%']] },
+  crit: { name: '致命瞄准', type: 'passive', tier: 0, desc: '暴击率 +8%', base: 0.08, cap: 0.75, val: 0, lvl: 0, lines: l => [['暴击率', '+' + 8 * l + '%']] },
+  shield: { name: '护盾增压', type: 'passive', tier: 0, desc: '护盾上限 +30，回复速度提升', base: 1, cap: 7, val: 0, lvl: 0, lines: l => [['护盾上限', '+' + 30 * l], ['护盾回复', '+' + 5 * l + ' / 秒']] },
+  maxhp: { name: '肌肉强化', type: 'passive', tier: 0, desc: '生命上限 +20 并回血，获得缓慢再生', base: 1, cap: 8, val: 0, lvl: 0, lines: l => [['生命上限', '+' + 20 * l], ['生命再生', (0.35 * l).toFixed(2) + ' / 秒']] },
+  dashcd: { name: '冲刺强化', type: 'passive', tier: 0, desc: '冲刺冷却 -15%，无敌时间延长', base: 1, cap: 6, val: 0, lvl: 0, lines: l => [['冲刺冷却', '-' + 15 * l + '%'], ['无敌时间', '+' + 20 * l + 'ms']] },
+  // ---------------- 元素与厂牌机制 ----------------
+  jakobs: { name: '雅各布斯式暴击', sub: 'Jakobs Ricochet', type: 'weapon', tier: 1, tag: 'JAKOBS', desc: '暴击时子弹弹向附近最近的另一名敌人', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['暴击伤害', '+' + 40 * l + '%'], ['弹射伤害', pc(0.7 + 0.15 * (l - 1))], ['弹射', '1 次 · 250px']] },
+  hyperion: { name: '亥伯龙稳定器', sub: 'Hyperion 反向后坐', type: 'weapon', tier: 1, tag: 'HYPERION', desc: '连续开火后锁定：绝对精准、更快、更易暴击', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['锁定用时', (1.5 - 0.3 * (l - 1)).toFixed(1) + ' 秒'], ['锁定射速', '+35%'], ['锁定暴击率', '+' + 20 * l + '%']] },
+  fire: { name: '马里旺：灼热地狱', sub: 'Maliwan Incendiary', type: 'element', tier: 1, tag: 'FIRE', desc: '概率点燃；燃烧中的敌人死亡时引燃身边的人', base: 1, cap: 5, val: 0, lvl: 0,
+    lines: l => [['点燃概率', pc(Math.min(0.9, 0.4 + 0.1 * l))], ['灼烧伤害', pc(0.25 + 0.1 * l) + ' 攻击 / 秒'], ['持续时间', '3 秒 · 蔓延 80px']] },
+  shock: { name: '秘藏电弧：连锁闪电', sub: 'Shock Chain', type: 'element', tier: 1, tag: 'SHOCK', desc: '概率放出连锁闪电，跳向多个目标并减速', base: 1, cap: 5, val: 0, lvl: 0,
+    lines: l => [['触发概率', pc(Math.min(0.85, 0.25 + 0.1 * l))], ['连锁跳跃', '3 个目标 · 150px'], ['每跳伤害 / 减速', '50% · 60%（0.4 秒）']] },
+  corrosive: { name: '腐蚀酸液：融化装甲', sub: 'Corrosive Melt', type: 'element', tier: 1, tag: 'CORROSIVE', desc: '克制重装敌人，并使其受到的伤害 +25%', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['对重装增伤', '+' + 50 * l + '%'], ['破甲（易伤）', '受到伤害 +25%'], ['破甲持续', (3 + l) + ' 秒']] },
+  slag: { name: '紫渣增幅', sub: 'Slag Infusion', type: 'element', tier: 1, tag: 'SLAG', desc: '概率射出紫渣弹；被覆盖的敌人受到的伤害翻倍', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['紫渣弹概率', pc(Math.min(0.45, 0.15 + 0.1 * l))], ['易伤倍率', '×2.0'], ['易伤持续', (4 + l) + ' 秒']] },
+  nova: { name: '新星护盾', sub: 'Nova Shield', type: 'shield', tier: 1, tag: 'SHIELD', desc: '护盾击破时释放冲击波；脱战 3 秒快速回充', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['护盾上限', '+' + 40 * l], ['新星伤害 / 半径', 180 * l + ' / ' + (160 + 20 * l) + 'px'], ['回充 / 冷却', '脱战 3 秒 / 8 秒']] },
+  bloodlust: { name: '狂化肾上腺素', sub: 'Bloodlust', type: 'passive', tier: 1, tag: 'BLOODLUST', desc: '拾取晶体叠加狂热：移速、射速与装填提升', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['磁吸范围', '+' + 60 * l + '%'], ['每层狂热', '+' + (1.5 + 0.75 * (l - 1)) + '%'], ['狂热上限', '20 层']] },
+  // ---------------- 核心质变词条 ----------------
+  torgue: { name: '托格重工：万物皆可爆', sub: 'Torgue Gyrojets', type: 'weapon', tier: 2, tag: 'TORGUE', desc: '子弹换成微型火箭，命中时炸开', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['射速', '-15%'], ['爆炸伤害', pc(1.2 + 0.3 * (l - 1))], ['爆炸半径', (65 + 8 * (l - 1)) + 'px']] },
+  tediore: { name: '泰迪尔：换弹即手雷', sub: 'Tediore Reload', type: 'weapon', tier: 2, tag: 'TEDIORE', desc: '换弹时把枪掷向准星，残弹越多炸得越狠', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['爆炸伤害', 250 * l + ' 起'], ['残弹加成', '最高 +67%'], ['爆炸半径', (110 + 10 * (l - 1)) + 'px']] },
+  gunzerker: { name: '秘藏猎人双持狂暴', sub: 'Gunzerker', type: 'skill', tier: 2, tag: 'SKILL', desc: '累计击杀后进入双持狂暴：射速翻倍、不耗弹', base: 1, cap: 3, val: 0, lvl: 0,
+    lines: l => [['触发条件', '累计击杀 30 人'], ['持续时间', (5 + (l - 1)) + ' 秒'], ['射速 / 弹药 / 减伤', '+100% / 不耗 / 30%']] },
+  secondwind: { name: '卷土重来', sub: 'Second Wind', type: 'skill', tier: 2, tag: 'SURVIVAL', desc: '致命伤后殊死一搏 4 秒，击杀任意敌人即满血复活', base: 1, cap: 1, val: 0, lvl: 0,
+    lines: () => [['触发次数', '每局 1 次'], ['殊死一搏', '4 秒'], ['反杀奖励', '满生命 + 满护盾']] }
 };
+/* 全部满级后的补给卡 */
 const EXTRA = {
-  heal: { name: '急救包', type: 'passive', desc: '立即恢复 40% 生命值' },
-  nuke: { name: '震爆脉冲', type: 'weapon', desc: '冲击波重创屏幕内所有敌人并击退' },
-  frenzy: { name: '狂暴血清', type: 'weapon', desc: '15 秒内射击速度翻倍' }
+  heal: { name: '急救包', type: 'passive', tier: 0, desc: '立即恢复 40% 生命值', lines: () => [['生命回复', '上限的 40%']] },
+  nuke: { name: '震爆脉冲', type: 'weapon', tier: 0, desc: '冲击波重创屏幕内所有敌人并击退', lines: () => [['范围伤害', '220 起'], ['击退', '全屏']] },
+  frenzy: { name: '狂暴血清', type: 'weapon', tier: 0, desc: '15 秒内射击速度翻倍', lines: () => [['射击速度', '+100%'], ['持续时间', '15 秒']] }
 };
 const KILL_WORDS = ['SPLAT!', 'WHAM!', 'POW!', 'BAM!', 'CRUNCH!'];
 const TIPS = [
@@ -308,7 +359,10 @@ const TIPS = [
   '提示：霰弹枪后坐力很大，朝远离敌人的方向开枪能把自己弹出去。',
   '提示：电击会让敌人麻痹减速，被围住时用冲锋枪开路。',
   '提示：岩石和集装箱挡子弹也挡人——绕着掩体跑，让疯子们排队拐弯。',
-  '提示：躲在掩体后面的敌人不会被自动瞄准锁定，换个角度再打。'
+  '提示：躲在掩体后面的敌人不会被自动瞄准锁定，换个角度再打。',
+  '提示：紫渣 + 火 / 电是经典连招——先给敌人镀上紫渣，之后的伤害全部翻倍。',
+  '提示：腐蚀专克重装铁桶兵：被酸液覆盖的敌人受到的一切伤害 +25%。',
+  '提示：拿了泰迪尔之后，换弹就是把手里的枪扔出去炸人，残弹越多越疼。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -625,13 +679,13 @@ function addFlame(x, y, vx, vy, life, size) {
   if (o) o.z = (Math.random() * 3) | 0;
   return o;
 }
-/* kind: 0 普通伤害(白)  1 暴击(大号黄)  2 持续伤害(橙) */
+/* kind: 0 普通伤害(白)  1 暴击(大号黄)  2 持续伤害(小号橙)  3 紫渣易伤中的伤害(大号紫) */
 function addText(x, y, val, kind, col, prefix) {
   let t;
   if (texts.length >= 60) t = texts.shift(); else t = textPool.pop() || {};
-  t.x = x + rand(-8, 8); t.y = y; t.life = t.max = kind === 1 ? 0.85 : 0.55;
+  t.x = x + rand(-8, 8); t.y = y; t.life = t.max = kind === 1 ? 0.85 : kind === 3 ? 0.75 : 0.55;
   t.str = (prefix || '') + (kind === 2 ? val.toFixed(1) : String(Math.round(val)));
-  t.crit = kind === 1; t.small = kind === 2; t.col = col || '#FFFFFF'; t.rot = rand(-0.2, 0.2);
+  t.crit = kind === 1; t.small = kind === 2; t.slag = kind === 3; t.col = col || '#FFFFFF'; t.rot = rand(-0.2, 0.2);
   texts.push(t);
 }
 /* 美漫拟声词；key + cool 用于限流，避免刷屏 */
@@ -678,6 +732,7 @@ function updateFx(dt) {
   for (let i = ghosts.length - 1; i >= 0; i--) { const g = ghosts[i]; g.life -= dt; if (g.life <= 0) ghosts.splice(i, 1); }
   for (let i = booms.length - 1; i >= 0; i--) { const b = booms[i]; b.t += dt; if (b.t >= b.max) booms.splice(i, 1); }
   for (let i = bolts.length - 1; i >= 0; i--) { const b = bolts[i]; b.life -= dt; if (b.life <= 0) bolts.splice(i, 1); }
+  for (let i = tracers.length - 1; i >= 0; i--) { const t = tracers[i]; t.life -= dt; if (t.life <= 0) tracers.splice(i, 1); }
   for (let i = zaps.length - 1; i >= 0; i--) { const z = zaps[i]; z.t += dt; if (z.t >= z.max) zaps.splice(i, 1); }
   for (let i = decals.length - 1; i >= 0; i--) { const d = decals[i]; d.life -= dt; if (d.life <= 0) decals.splice(i, 1); }
   for (let i = toasts.length - 1; i >= 0; i--) { const t = toasts[i]; t.life -= dt; if (t.life <= 0) toasts.splice(i, 1); }
@@ -687,22 +742,32 @@ function updateFx(dt) {
 /* ============================================================
    玩家
    ============================================================ */
-/* 第 i 把武器在当前升级加成下的实际数值。
-   升级对三把枪的加成方式：伤害 / 射速 / 穿透对全武器生效；"分裂弹头"给霰弹枪加弹丸、给其它两把加伤害；
-   "燃烧 / 电击附魔"给全武器加元素触发概率（霰弹枪、冲锋枪各自的本命元素成长更快） */
+/* 狂热（肾上腺素）：每一层提供的移速 / 射速 / 装填加成比例 */
+function bloodK() { return UPS.bloodlust.lvl ? 0.015 + 0.0075 * (UPS.bloodlust.lvl - 1) : 0; }
+/* 亥伯龙：进入锁定所需的连续开火秒数（每级缩短 0.3 秒） */
+function hyperionTime() { return Math.max(0.9, 1.5 - 0.3 * (UPS.hyperion.lvl - 1)); }
+
+/* 第 i 把武器在当前升级加成下的实际数值。每帧重算，所以狂热层数、亥伯龙锁定、双持狂暴这类临时状态会立刻生效。
+   升级对三把枪的加成方式：伤害 / 射速 / 穿透 / 元素对全武器生效；"分裂弹头"给霰弹枪加弹丸、给其它两把加伤害 */
 function weaponStats(i) {
-  const W = WEAPONS[i], u = UPS, extra = Math.floor(u.shotgun.val), sg = i === 1, smg = i === 2;
+  const W = WEAPONS[i], u = UPS, p = player, extra = Math.floor(u.shotgun.val), sg = i === 1;
+  const dmg = W.dmg * (1 + u.damage.val + (sg ? 0 : 0.10 * extra)) * (sg ? Math.pow(0.9, extra) : 1), blood = 1 + bloodK() * p.blood;
   return {
     pellets: W.pellets + (sg ? extra : 0),
-    dmg: W.dmg * (1 + u.damage.val + (sg ? 0 : 0.10 * extra)) * (sg ? Math.pow(0.9, extra) : 1),
-    rate: W.rate * (1 + u.firerate.val) * (player.frenzyT > 0 ? 2 : 1), pierce: Math.floor(u.pierce.val),
-    cone: (W.cone + (sg ? extra * 1.2 : 0)) * DEG,
-    fireChance: Math.min(0.85, W.fire + (sg ? 0.06 : 0.12) * u.fire.val),
-    burnDps: (8 + 4 * u.fire.val) * (1 + u.damage.val) * (sg ? 1.5 : 1),
-    shockChance: Math.min(0.6, W.shock + (smg ? 0.06 : 0.10) * u.shock.val),
-    chains: Math.min(5, W.chains + Math.floor(u.shock.val) + (smg ? 1 : 0)),   // 每级电击附魔多跳一次（最多 5 跳）；冲锋枪本命 +1 跳
-    critMul: W.critMul, bulletSpeed: W.speed, life: W.life, kb: W.kb, shake: W.shake, kick: W.kick, muzzle: W.muzzle,
-    magMax: Math.round(W.mag * (1 + 0.5 * u.firerate.val)), reload: W.reload
+    dmg,
+    rate: W.rate * (1 + u.firerate.val) * blood * (p.frenzyT > 0 || p.gunzT > 0 ? 2 : 1) * (u.torgue.lvl ? 0.85 : 1) * (p.hypLock ? 1.35 : 1),
+    pierce: Math.floor(u.pierce.val),
+    cone: p.hypLock ? 0 : (W.cone + (sg ? extra * 1.2 : 0)) * DEG,                     // 亥伯龙锁定：散射归零
+    crit: p.crit + (p.hypLock ? 0.2 * u.hyperion.lvl : 0),
+    critMul: W.critMul + 0.4 * u.jakobs.lvl,                                          // 雅各布斯：暴击伤害每级 +40%
+    fireChance: Math.max(W.fire, u.fire.lvl ? Math.min(0.9, 0.4 + 0.1 * u.fire.lvl) : 0),
+    burnDps: dmg * Math.max(sg ? 1.26 : 0, u.fire.lvl ? 0.25 + 0.1 * u.fire.lvl : 0),  // 灼烧 = 攻击力的百分比 / 秒；霰弹枪本命火焰更强
+    shockChance: Math.max(W.shock, u.shock.lvl ? Math.min(0.85, 0.25 + 0.1 * u.shock.lvl) : 0),
+    chains: u.shock.lvl ? 3 : W.chains,                                               // 有电弧卡：最多跳 3 个目标
+    slagChance: u.slag.lvl ? Math.min(0.45, 0.15 + 0.1 * u.slag.lvl) : 0,
+    rocket: u.torgue.lvl > 0,
+    bulletSpeed: W.speed, life: W.life, kb: W.kb, shake: W.shake, kick: W.kick, muzzle: W.muzzle,
+    magMax: Math.round(W.mag * (1 + 0.5 * u.firerate.val)), reload: W.reload / blood
   };
 }
 
@@ -710,8 +775,9 @@ function recalcStats() {
   const u = UPS, p = player;
   p.speed = 250 * (1 + u.speed.val);
   p.crit = 0.05 + u.crit.val;
-  p.magnetR = 95 * (1 + u.magnet.val);
-  const sm = 30 + 30 * u.shield.val; if (sm > p.shieldMax) p.shield += sm - p.shieldMax; p.shieldMax = sm; p.shieldRate = 14 + 5 * u.shield.val;
+  p.magnetR = 95 * (1 + u.magnet.val + 0.6 * u.bloodlust.lvl);
+  const sm = 30 + 30 * u.shield.val + 40 * u.nova.val; if (sm > p.shieldMax) p.shield += sm - p.shieldMax; p.shieldMax = sm;   // 新星护盾：上限 +40 / 级，回充更快
+  p.shieldRate = 14 + 5 * u.shield.val + 18 * u.nova.val; p.shieldDelayMax = u.nova.lvl ? 3 : 4;                                // 新星护盾：脱战 3 秒就开始回充
   const hm = 100 + 20 * u.maxhp.val; if (hm > p.hpMax) p.hp += hm - p.hpMax; p.hpMax = hm; p.regen = 0.35 * u.maxhp.val;
   for (let i = 0; i < 3; i++) {   // 每把枪独立弹匣：容量变大时补上差额
     const mm = weaponStats(i).magMax; if (mm > p.mmax[i] && p.rel[i] <= 0) p.ammo[i] += mm - p.mmax[i]; p.mmax[i] = mm; p.ammo[i] = Math.min(p.ammo[i], mm);
@@ -744,6 +810,7 @@ function startReload(manual) {
   const p = player, i = p.weapon;
   if (p.rel[i] > 0 || p.ammo[i] >= p.mmax[i] || !p.alive || p.swapT > 0) return;
   p.rel[i] = gun.reload; SFX.reload();
+  if (UPS.tediore.lvl) throwGun(p.ammo[i] / p.mmax[i]);   // 泰迪尔：换弹 = 把手里这把枪朝准星掷出去（残弹越多越狠）
 }
 
 /* 切换武器：to 为目标武器序号（越界自动循环）。换枪需要 0.22 秒，期间不能开火。
@@ -786,8 +853,10 @@ function updateAim(dt) {
 
 function fire() {
   const p = player, g = gun, n = g.pellets, w = p.weapon, ca = Math.cos(p.aim), sa = Math.sin(p.aim);
-  p.ammo[w]--;
-  const cone = (g.cone + (w === 1 ? 0 : p.heat * 4 * DEG)) * (mouse.down ? 1.5 : 1) * (p.moving ? 1.25 : 1);
+  if (UPS.hyperion.lvl && p.hypGap > 0.3) p.hypT = 0;   // 亥伯龙：新的一轮连射从头计时
+  p.hypGap = 0;
+  if (p.gunzT <= 0) p.ammo[w]--;                        // 双持狂暴期间不消耗弹药
+  const cone = p.hypLock ? 0 : (g.cone + (w === 1 ? 0 : p.heat * 4 * DEG)) * (mouse.down ? 1.5 : 1) * (p.moving ? 1.25 : 1);   // 锁定后绝对精准
   const mx = p.x + ca * g.muzzle, my = p.y + sa * g.muzzle;
   for (let i = 0; i < n; i++) {
     const off = w === 1 ? (i % 2 ? 2.8 : -2.8) : 0;   // 双管霰弹枪：左右两根枪管交替出弹
@@ -812,21 +881,22 @@ function fire() {
     cam.kx = -ca * 9; cam.ky = -sa * 9; hitStop = Math.max(hitStop, 0.03);
     for (let i = 0; i < 3; i++) addPart('smoke', mx - ca * 4, my - sa * 4, ca * rand(30, 90) - sa * rand(-30, 30), sa * rand(30, 90) + ca * rand(-30, 30), rand(0.3, 0.5), rand(4, 6.5), '#7A6A5A');
   }
-  SFX.shoot(w);
+  SFX.shoot(w); if (g.rocket) SFX.rocket();
 }
 
 function spawnBullet(x, y, a) {
   let b;
   if (bullets.length >= MAX_B) { b = bullets[0]; bullets[0] = bullets[bullets.length - 1]; bullets.pop(); }
   else b = bulletPool.pop() || { hits: [] };
-  const w = player.weapon, sg = w === 1;
-  const sp = gun.bulletSpeed * (sg ? rand(0.88, 1.1) : rand(0.96, 1.04)), r = (sg ? 3.6 : w === 2 ? 2.7 : 3.2) + (gun.pierce ? 1 : 0);
+  const w = player.weapon, sg = w === 1, rk = gun.rocket;
+  const sp = gun.bulletSpeed * (sg ? rand(0.88, 1.1) : rand(0.96, 1.04)), r = rk ? 5 : (sg ? 3.6 : w === 2 ? 2.7 : 3.2) + (gun.pierce ? 1 : 0);
   b.x = x; b.y = y; b.vx = Math.cos(a) * sp; b.vy = Math.sin(a) * sp; b.r = r; b.len = r * 2.7;
   b.dmg = gun.dmg; b.pierce = gun.pierce; b.life = gun.life * (sg ? rand(0.85, 1.1) : 1); b.kb = gun.kb; b.critMul = gun.critMul;
-  // 元素触发参数在出膛时定格：之后换枪或升级不影响已经飞出去的子弹
+  // 元素与词条参数在出膛时定格：之后换枪或升级不影响已经飞出去的子弹
   b.fire = gun.fireChance > 0; b.fireC = gun.fireChance; b.burnDps = gun.burnDps;
   b.shock = gun.shockChance > 0; b.shockC = gun.shockChance; b.chains = gun.chains;
-  b.style = w; b.dead = false;
+  b.slag = Math.random() < gun.slagChance;                 // 紫渣弹：每一发单独判定
+  b.rocket = rk; b.hyp = player.hypLock && UPS.hyperion.lvl > 0; b.style = rk ? 3 : w; b.dead = false;
   b.hits.length = 0;
   bullets.push(b);
 }
@@ -838,13 +908,21 @@ function updateShooting(dt) {
   p.heat = Math.max(0, p.heat - dt * 1.5);
   p.spread = Math.max(0, p.spread - dt * 40);
   if (p.frenzyT > 0) p.frenzyT -= dt;
+  if (p.gunzT > 0) p.gunzT -= dt;
+  if (p.novaCd > 0) p.novaCd -= dt;
+  // 亥伯龙：连续开火计时。停火超过 0.3 秒（松手 / 换弹 / 换枪）就归零并解除锁定
+  if (UPS.hyperion.lvl) {
+    p.hypGap += dt;
+    if (p.hypGap > 0.3) { p.hypT = 0; p.hypLock = false; }
+    else { p.hypT += dt; if (!p.hypLock && p.hypT >= hyperionTime()) { p.hypLock = true; SFX.lock(); } }
+  }
   if (p.swapT > 0) return;   // 换枪中不能开火
   if (p.rel[i] > 0) {        // 只有手持的武器在推进装填
     p.rel[i] -= dt;
     if (p.rel[i] <= 0) { p.rel[i] = 0; p.ammo[i] = p.mmax[i]; SFX.reloadDone(); }
     return;
   }
-  if (p.ammo[i] <= 0) { startReload(false); return; }
+  if (p.ammo[i] <= 0 && p.gunzT <= 0) { startReload(false); return; }   // 双持狂暴期间不耗弹，也就不会打空
   if (!p.hasTarget && !mouse.down) { p.fireT = Math.min(p.fireT, 0.04); return; }   // 没有目标时不浪费子弹
   p.fireT -= dt;
   if (p.fireT <= 0) {
@@ -855,6 +933,8 @@ function updateShooting(dt) {
 
 function updatePlayer(dt) {
   const p = player;
+  // 殊死一搏：4 秒内没有反杀就倒下
+  if (p.swT > 0) { p.swT -= dt; if (p.swT <= 0) { p.swT = 0; p.hp = 0; killPlayer(); return; } }
   if (p.iframes > 0) p.iframes -= dt;
   if (p.flash > 0) p.flash -= dt;
   if (p.shieldFx > 0) p.shieldFx -= dt;
@@ -866,6 +946,12 @@ function updatePlayer(dt) {
   if (p.shGhost < p.shield) p.shGhost = p.shield; else if (p.shGhost > p.shield) p.shGhost = Math.max(p.shield, p.shGhost - dt * 140);
   if (p.dashCd > 0) p.dashCd -= dt;
   if (p.swapT > 0) p.swapT -= dt;   // 换枪计时
+  // 肾上腺素：3 秒没拾取晶体后，每 0.35 秒掉一层狂热；带着狂热移动时身后拖出红色残影
+  if (p.blood > 0) {
+    p.bloodT += dt;
+    if (p.bloodT > 3) { p.bloodDecay += dt; while (p.bloodDecay >= 0.35 && p.blood > 0) { p.bloodDecay -= 0.35; p.blood--; } } else p.bloodDecay = 0;
+    if (p.moving) { p.bloodGhostT -= dt; if (p.bloodGhostT <= 0) { p.bloodGhostT = 0.1 - 0.0035 * p.blood; ghosts.push({ x: p.x, y: p.y, aim: p.aim, walk: p.walk, w: p.weapon, c: 2, life: 0.24, max: 0.24 }); } }
+  }
 
   if (p.dashT > 0) {
     p.dashT -= dt;
@@ -876,8 +962,8 @@ function updatePlayer(dt) {
     if (Math.random() < dt * 40) addPart('spark', p.x + rand(-6, 6), p.y + rand(-6, 6) + 6, -p.dashDx * rand(60, 160), -p.dashDy * rand(60, 160), 0.2, 2, '#5FF3FF');
     if (p.dashT <= 0) p.iframes = Math.max(p.iframes, 0.05);
   } else {
-    const [ix, iy] = inputDir(), k = 1 - Math.exp(-dt * 16);
-    p.mvx += (ix * p.speed - p.mvx) * k; p.mvy += (iy * p.speed - p.mvy) * k;
+    const [ix, iy] = inputDir(), k = 1 - Math.exp(-dt * 16), spd = p.speed * (1 + bloodK() * p.blood) * (p.swT > 0 ? 0.35 : 1);   // 狂热加移速；殊死一搏大幅减速
+    p.mvx += (ix * spd - p.mvx) * k; p.mvy += (iy * spd - p.mvy) * k;
     p.moving = !!(ix || iy);
     p.x += (p.mvx + p.kbx) * dt; p.y += (p.mvy + p.kby) * dt;
   }
@@ -887,6 +973,11 @@ function updatePlayer(dt) {
   resolveSolids(p, false);
   updateAim(dt);
   updateShooting(dt);
+  // 双持狂暴：两侧的枪口持续喷火
+  if (p.gunzT > 0) for (let s = -1; s <= 1; s += 2) if (Math.random() < dt * 46) {
+    const a = p.aim + s * 0.38, ox = p.x - Math.sin(p.aim) * 15 * s, oy = p.y + Math.cos(p.aim) * 15 * s;
+    addFlame(ox + Math.cos(a) * 34 + rand(-4, 4), oy + Math.sin(a) * 34 + rand(-4, 4), Math.cos(a) * rand(40, 120), Math.sin(a) * rand(40, 120), rand(0.2, 0.35), rand(4, 6.5));
+  }
   // 镜头略偏向准星方向
   const tx = p.x + (mouse.x - W / 2) / ZOOM * 0.14, ty = p.y + (mouse.y - H / 2) / ZOOM * 0.14, ck = 1 - Math.exp(-dt * 9);
   cam.x += (tx - cam.x) * ck; cam.y += (ty - cam.y) * ck;
@@ -894,36 +985,81 @@ function updatePlayer(dt) {
 
 function hurtPlayer(dmg, sx, sy, force) {
   const p = player;
-  if (!p.alive || (p.iframes > 0 && !force)) return;
+  if (!p.alive || (p.iframes > 0 && !force) || p.swT > 0) return;   // 殊死一搏期间不再受伤
+  if (p.gunzT > 0) dmg *= 0.7;                                       // 双持狂暴：伤害减免 30%
   stats.dmgTaken += dmg;
   if (p.shield > 0) {
     const a = Math.min(p.shield, dmg); p.shield -= a; dmg -= a; p.shieldFx = 0.3;
     if (p.shield <= 0.01) {
       p.shield = 0; SFX.shieldBreak(); addWord('CRACK!', p.x, p.y - 34, '#5FF3FF', 26, 'crack', 800);
       for (let i = 0; i < 10; i++) { const a2 = i / 10 * TAU; addPart('spark', p.x + Math.cos(a2) * 20, p.y + Math.sin(a2) * 20, Math.cos(a2) * 260, Math.sin(a2) * 260, 0.3, 2.5, '#5FF3FF'); }
+      if (UPS.nova.lvl && p.novaCd <= 0) novaBlast();
     }
   }
   if (dmg > 0) { p.hp -= dmg; p.hpGhostT = 0.4; }
-  p.shieldDelay = 4; p.iframes = 0.75; p.flash = 0.06;
+  p.shieldDelay = p.shieldDelayMax; p.iframes = 0.75; p.flash = 0.06;
   const dx = p.x - sx, dy = p.y - sy, d = hyp(dx, dy) || 1; p.kbx += dx / d * 280; p.kby += dy / d * 280;
   addShake(13); hurtFlash = 1;
   addWord('OUCH!', p.x, p.y - 30, '#FF5A3C', 30, 'ouch', 700);
   SFX.hurt();
-  if (p.hp <= 0) { p.hp = 0; killPlayer(); }
+  if (p.hp <= 0) {
+    if (UPS.secondwind.lvl && !p.swUsed) startSecondWind();   // 卷土重来：致命伤改为殊死一搏
+    else { p.hp = 0; killPlayer(); }
+  }
 }
 
 function killPlayer() {
   const p = player; if (!p.alive) return;
-  p.alive = false; deathT = 1.5; p.hpGhost = p.shGhost = 0;
+  p.alive = false; deathT = 1.5; p.hpGhost = p.shGhost = 0; p.swT = 0;
   for (let i = 0; i < 26; i++) { const a = rand(TAU), s = rand(80, 420); addPart('chunk', p.x, p.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.5, 1), rand(3, 7), pick(['#C0281F', '#E9A21B', '#F2C9A0', '#8C3B1E']), rand(TAU)); }
   addDecal('splat', p.x, p.y, 22);
   addWord('SPLAT!', p.x, p.y - 30, '#E8452C', 52, null, 0);
   addShake(22); hurtFlash = 1; SFX.death(); SFX.boom();
 }
+
+/* ---- 新星护盾：护盾被打空的瞬间，以自身为中心释放冲击波（伤害 + 强击退），8 秒内置冷却 ---- */
+function novaBlast() {
+  const p = player, l = UPS.nova.lvl, R = 160 + 20 * l;
+  p.novaCd = 8;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (e.dead) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d = hyp(dx, dy) || 1;
+    if (d > R + e.r) continue;
+    applyDamage(e, 180 * l * dmgScale(), { sourceTag: 'nova', kx: dx / d, ky: dy / d, kb: 9, textCol: '#9FF6FF' });
+  }
+  booms.push({ x: p.x, y: p.y, r: R, t: 0, max: 0.5, rot: 0, pts: null, ring: true, c1: '#5FF3FF', c2: '#9FF6FF', delay: 0 });          // 青橙色同心圆波纹
+  booms.push({ x: p.x, y: p.y, r: R * 0.7, t: 0, max: 0.5, rot: 0, pts: null, ring: true, c1: '#FF9A1F', c2: '#FFD23F', delay: 0.08 });
+  for (let i = 0; i < 16; i++) { const a = i / 16 * TAU; addPart('spark', p.x + Math.cos(a) * 20, p.y + Math.sin(a) * 20, Math.cos(a) * 420, Math.sin(a) * 420, 0.35, 2.5, i % 2 ? '#5FF3FF' : '#FF9A1F'); }
+  addWord('NOVA!', p.x, p.y - 40, '#5FF3FF', 50, null, 0); addShake(14); SFX.nova();
+}
+
+/* ---- 双持狂暴：累计击杀满 30 人自动触发。期间射速翻倍、不耗弹、减伤 30% ---- */
+function startGunzerker() {
+  const p = player; p.gunzT = 5 + (UPS.gunzerker.lvl - 1); p.iframes = Math.max(p.iframes, 0.3);
+  addWord('GUNZERK!', W / 2, H * 0.3, '#FF8C00', 64, null, 0, true); addShake(10); whiteFlash = Math.max(whiteFlash, 0.35); SFX.gunzerk();
+}
+
+/* ---- 卷土重来：致命伤改为 4 秒殊死一搏（大幅减速、仍可开火、不再受伤）；期间击杀任意敌人即满血复活 ---- */
+const SW_TIME = 4;
+function startSecondWind() {
+  const p = player; p.swUsed = true; p.swT = SW_TIME; p.hp = 1; p.hpGhost = 1; p.iframes = SW_TIME;
+  hurtFlash = 1; addShake(16); addWord('FIGHT FOR YOUR LIFE!', W / 2, H * 0.2, '#FFFFFF', 44, null, 0, true); SFX.down();
+}
+function secondWindRevive() {
+  const p = player; p.swT = 0; p.iframes = Math.max(p.iframes, 1.5);
+  p.hp = p.hpMax; p.hpGhost = p.hpMax; p.shield = p.shieldMax; p.shGhost = p.shieldMax; p.shieldDelay = 0;
+  for (let i = 0; i < enemies.length; i++) {   // 震飞身边的敌人
+    const e = enemies[i]; if (e.dead) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d = hyp(dx, dy) || 1;
+    if (d < 260) { e.kx += dx / d * 980 * (1 - e.kbRes); e.ky += dy / d * 980 * (1 - e.kbRes); }
+  }
+  booms.push({ x: p.x, y: p.y, r: 260, t: 0, max: 0.5, rot: 0, pts: null, ring: true, c1: '#FFF6A0', c2: '#FFD23F', delay: 0 });
+  whiteFlash = 1; addShake(20); hitStop = Math.max(hitStop, 0.06);
+  addWord('SECOND WIND!', W / 2, H * 0.3, '#FFD23F', 68, null, 0, true); SFX.revive();
+}
 /* ============================================================
    敌人
    ============================================================ */
-/* 在镜头视野外一圈随机取一个刷怪点 */
 function edgePos(margin) {
   const hw = vw + margin, hh = vh + margin, side = Math.floor(Math.random() * 4);
   if (side === 0) return [cam.x + rand(-hw, hw), cam.y - hh];
@@ -941,7 +1077,7 @@ function spawnEnemy(type, x, y, elite) {
   e.dmg = T.dmg * dmgScale(); e.xp = T.xp * (elite ? 12 : 1);
   e.kbRes = elite ? Math.min(0.95, T.kbRes + 0.5) : T.kbRes; e.mass = T.mass * (elite ? 5 : 1);
   e.dead = false; e.elite = !!elite; e.flash = 0; e.spawnT = 0.25; e.kx = 0; e.ky = 0;
-  e.burnT = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.shockT = 0; e.armT = 0; e.awayT = 0;
+  e.burnTimer = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.shockSlowTimer = 0; e.corrosiveTimer = 0; e.slagTimer = 0; e.armT = 0; e.awayT = 0;   // 状态计时器：燃烧 / 电击减速 / 腐蚀 / 紫渣
   e.ang = Math.atan2(player.y - y, player.x - x); e.walk = rand(TAU); e.t = rand(TAU);
   e.wob = type === 0 ? rand(0.15, 0.45) : 0; e.wobF = rand(3, 6); e.wobP = rand(TAU);
   e.arming = false; e.dk = 2; e.vis = false; e.blk = false; e.side = 1;
@@ -984,66 +1120,153 @@ function startWave() {
   SFX.wave();
 }
 
-function damageEnemy(e, dmg, crit, dx, dy, kbMul) {
-  if (e.dead || dmg <= 0) return;
-  e.hp -= dmg; e.flash = 0.07;
-  const kb = (crit ? 280 : 170) * (1 - e.kbRes) * kbMul;
-  e.kx += dx * kb; e.ky += dy * kb;
-  stats.damage += dmg;
-  if (crit) { stats.crits++; if (dmg > stats.maxCrit) stats.maxCrit = dmg; }
-  addText(e.x, e.y - e.r, dmg, crit ? 1 : 0, crit ? '#FFE23F' : '#FFFFFF');
-  if (e.hp <= 0) killEnemy(e, dx, dy);
+/* ============================================================
+   统一伤害结算 + 状态效果 + 元素 / 厂牌机制
+   ============================================================ */
+/* 伤害来源标签 → [结算界面上的名称, 配色] */
+const DMG_SRC = {
+  bullet: ['子弹直击', '#F4E9D3'], rocket: ['托格爆炸', '#FF8C00'], tediore: ['泰迪尔掷枪', '#FFD23F'], jakobs: ['雅各布斯弹射', '#FFE23F'], fire: ['灼烧', '#FF7A1A'],
+  shock: ['连锁闪电', '#5FF3FF'], nova: ['新星冲击', '#49E6FF'], blast: ['环境爆炸', '#C8B48A'], nuke: ['震爆脉冲', '#FFFFFF']
+};
+const NO_OPT = {}, SLAG_ELS = ['slag'], FIRE_ELS = ['fire'], SHOCK_ELS = ['shock'];   // 常驻的元素列表，命中时直接引用，不新建数组
+/* 所有对敌人的伤害（子弹 / 爆炸 / 电弧 / 灼烧 / 新星 …）都从这里结算，返回实际造成的伤害。
+   o = { isCrit, critMul, sourceTag, elements: ['fire' | 'shock' | 'corrosive' | 'slag'], kb, kx, ky, dot, textCol, silent }
+   结算顺序：① 暴击倍率 → ② 紫渣易伤 ×2.0（紫渣弹自己的伤害不享受）→ ③ 腐蚀破甲 ×1.25 → 扣血 / 击退 / 跳字 / 按来源记账 */
+function applyDamage(target, baseDamage, options) {
+  const e = target, o = options || NO_OPT;
+  if (!e || e.dead || !(baseDamage > 0)) return 0;
+  let dmg = baseDamage;
+  if (o.isCrit) dmg *= o.critMul || 2.2;
+  const slagged = e.slagTimer > 0 && !(o.elements && o.elements.indexOf('slag') >= 0);
+  if (slagged) dmg *= 2;
+  if (e.corrosiveTimer > 0) dmg *= 1.25;
+  e.hp -= dmg; if (!o.dot) e.flash = 0.07;
+  const kb = (o.isCrit ? 280 : 170) * (1 - e.kbRes) * (o.kb || 0);
+  if (kb > 0) { e.kx += (o.kx || 0) * kb; e.ky += (o.ky || 0) * kb; }
+  const tag = o.sourceTag || 'bullet';
+  stats.damage += dmg; stats.dmgBy[tag] = (stats.dmgBy[tag] || 0) + dmg;
+  if (o.isCrit) { stats.crits++; if (dmg > stats.maxCrit) stats.maxCrit = dmg; }
+  if (!o.silent) {
+    if (slagged) addText(e.x, e.y - e.r, dmg, 3, '#D45CFF');                                   // 紫渣易伤：硕大的紫色跳字
+    else if (o.dot) addText(e.x, e.y - e.r, dmg, 2, o.textCol || '#FF8A1E');
+    else addText(e.x, e.y - e.r, dmg, o.isCrit ? 1 : 0, o.isCrit ? '#FFE23F' : o.textCol || '#FFFFFF');
+  }
+  if (e.hp <= 0) killEnemy(e, o.kx || 0, o.ky || 0);
+  return dmg;
 }
-/* 点燃：持续 3 秒灼烧（多个来源取最高的每秒伤害）。刚点着的瞬间窜起一团火苗 */
-function ignite(e, dps) {
-  if (e.burnT <= 0) {
+
+/* ---- 状态效果：燃烧（持续伤害）/ 电击减速 / 腐蚀破甲（受到的伤害 +25%）/ 紫渣（受到的伤害 ×2）---- */
+function applyBurn(e, dps, dur) {
+  if (e.burnTimer <= 0) {
     for (let i = 0; i < 6; i++) addFlame(e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.6, rand(-40, 40), -rand(40, 110), rand(0.35, 0.6), rand(4, 7));
     addWord('FWOOSH!', e.x, e.y - e.r - 14, '#FF8A1E', 24, 'ignite', 700); SFX.ignite();
   }
-  e.burnT = 3; e.burnDps = Math.max(e.burnDps, dps);
+  e.burnTimer = Math.max(e.burnTimer, dur); e.burnDps = Math.max(e.burnDps, dps);   // 多个来源：取更长的剩余时间和更高的每秒伤害
 }
-
-/* 电击命中：麻痹 0.3 秒（移动减速）+ 电火花 + 电光星 */
-function shock(e) {
-  e.shockT = 0.3; zaps.push({ x: e.x, y: e.y, t: 0, max: 0.16, rot: rand(TAU) });
+function applyShock(e, dur) {
+  e.shockSlowTimer = Math.max(e.shockSlowTimer, dur);
+  zaps.push({ x: e.x, y: e.y, t: 0, max: 0.16, rot: rand(TAU) });
   for (let i = 0; i < 3; i++) { const a = rand(TAU), s = rand(90, 240); addPart('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.12, 0.25), 2, i % 2 ? '#5FF3FF' : '#FFFFFF'); }
 }
+function applyCorrosive(e, dur) {
+  if (e.corrosiveTimer <= 0) { addWord('HISSS!', e.x, e.y - e.r - 14, '#8CFF3A', 24, 'hiss', 500); SFX.hiss(); }
+  e.corrosiveTimer = Math.max(e.corrosiveTimer, dur);
+}
+function applySlag(e, dur) {
+  if (e.slagTimer <= 0) { SFX.slag(); for (let i = 0; i < 5; i++) addPart('acid', e.x + rand(-e.r, e.r), e.y + rand(-e.r, e.r) * 0.6, rand(-30, 30), rand(10, 50), rand(0.4, 0.6), rand(2, 3.2) * e.scale, '#C44DFF'); }
+  e.slagTimer = Math.max(e.slagTimer, dur);
+}
+/* 重装 / 高血量敌人：重装铁桶兵、任何 BADASS，或血量达到疯子 4.6 倍以上的目标 */
+function isArmored(e) { return e.type === 2 || !!e.elite || e.hpMax >= 120 * hpScale(); }
 
-/* 连锁闪电：命中的目标先被电到，再依次跳向最近的未命中敌人；被电到的敌人麻痹、抽搐、闪白 */
+/* 一发子弹（或雅各布斯的弹射）命中单个敌人的结算：暴击 → 腐蚀克制 → 扣血 → 元素触发 → 雅各布斯弹射。返回实际造成的伤害 */
+function bulletHit(b, e, nx, ny, mul, isRicochet) {
+  const u = UPS, crit = !isRicochet && Math.random() < gun.crit;
+  let dmg = b.dmg * mul;
+  if (!isRicochet && u.corrosive.lvl && isArmored(e)) { dmg *= 1 + 0.5 * u.corrosive.lvl; applyCorrosive(e, 3 + u.corrosive.lvl); }   // 腐蚀：克制重装 + 附着破甲
+  const dealt = applyDamage(e, dmg, { isCrit: crit, critMul: b.critMul, sourceTag: isRicochet ? 'jakobs' : 'bullet', elements: b.slag ? SLAG_ELS : null, kx: nx, ky: ny, kb: b.kb });
+  if (!isRicochet) {
+    if (crit) { SFX.crit(); addWord('CRIT!', e.x + rand(-6, 6), e.y - e.r - 14, '#FFE23F', 28, 'crit', 260); } else SFX.hit();
+    for (let i = 0; i < 2; i++) addPart('spark', b.x, b.y, -b.vx * rand(0.1, 0.3) + rand(-90, 90), -b.vy * rand(0.1, 0.3) + rand(-90, 90), rand(0.12, 0.22), 2, b.slag ? '#D45CFF' : b.style === 1 ? '#FFB01E' : b.style === 2 ? '#9FF6FF' : crit ? '#FFE23F' : '#FFF6A0');
+  }
+  if (!e.dead) {
+    if (b.slag) applySlag(e, 4 + u.slag.lvl);   // 紫渣弹：先造成这一发的伤害，再覆盖紫渣（之后的伤害才翻倍）
+    if (!isRicochet) elementProcs(b, e);
+  }
+  if (!isRicochet && crit && u.jakobs.lvl) ricochet(e, dealt, b);
+  return dealt;
+}
+/* 元素触发：用的是这发子弹出膛时的概率与强度 */
+function elementProcs(b, e) {
+  if (b.fireC > 0 && Math.random() < b.fireC) applyBurn(e, b.burnDps, 3);
+  if (!e.dead && b.shockC > 0 && Math.random() < b.shockC) chainLightning(e, b.dmg, b.chains);
+}
+/* 雅各布斯弹射：暴击后朝 250px 内最近的另一名敌人弹一次，造成这次伤害的 70% 起；弹道是一条带折角的金色描边折线 */
+function ricochet(from, dealt, b) {
+  let best = null, bd = 250 * 250;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (e.dead || e === from) continue;
+    const dx = e.x - from.x, dy = e.y - from.y, d2 = dx * dx + dy * dy;
+    if (d2 < bd) { bd = d2; best = e; }
+  }
+  if (!best) return;
+  const dx = best.x - from.x, dy = best.y - from.y, d = hyp(dx, dy) || 1;
+  tracers.push({ ax: from.x, ay: from.y, bx: best.x, by: best.y, mx: (from.x + best.x) / 2 - dy / d * 7, my: (from.y + best.y) / 2 + dx / d * 7, life: 0.18, max: 0.18 });
+  bulletHit({ dmg: dealt, critMul: b.critMul, kb: b.kb }, best, dx / d, dy / d, 0.7 + 0.15 * (UPS.jakobs.lvl - 1), true);   // 以这次实际造成的伤害（含暴击）为基础
+  addWord('PING!', best.x + rand(-6, 6), best.y - best.r - 14, '#FFD23F', 24, 'ping', 240); SFX.ping();
+}
+/* 托格微型火箭：命中点炸开，范围内的敌人都受到 120% 起的弹丸伤害（一发只判定一次暴击）。hit 为直接命中的敌人（可为空，比如撞在掩体上） */
+function rocketBlast(b, hx, hy, hit) {
+  const l = UPS.torgue.lvl, R = 65 + 8 * (l - 1), crit = Math.random() < gun.crit;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (e.dead) continue;
+    const dx = e.x - hx, dy = e.y - hy, d = hyp(dx, dy) || 1;
+    if (d > R + e.r) continue;
+    const dealt = applyDamage(e, b.dmg * (1.2 + 0.3 * (l - 1)) * (1 - 0.3 * d / (R + e.r)), { isCrit: crit, critMul: b.critMul, sourceTag: 'rocket', kx: dx / d, ky: dy / d, kb: 2, textCol: '#FFB01E' });
+    if (e === hit && crit && dealt > 0 && UPS.jakobs.lvl) ricochet(e, dealt, b);
+  }
+  booms.push({ x: hx, y: hy, r: R, t: 0, max: 0.3, rot: rand(TAU), pts: starPts(9, 0.42), ring: false });
+  for (let i = 0; i < 3; i++) addPart('smoke', hx + rand(-8, 8), hy + rand(-8, 8), rand(-60, 60), rand(-80, -10), rand(0.3, 0.5), rand(5, 8), '#7A6A5A');
+  for (let i = 0; i < 7; i++) { const a = rand(TAU), s = rand(140, 340); addPart('spark', hx, hy, Math.cos(a) * s, Math.sin(a) * s, rand(0.15, 0.3), 2.2, i % 2 ? '#FFD23F' : '#FF8A1E'); }
+  addShake(3.5); addWord('BOOM!', hx, hy - 14, '#FF9A1F', 30, 'rocket', 420); SFX.blast();
+}
+/* 连锁闪电：命中的目标先被电到，再依次跳向 150px 内最近的未命中敌人（最多 chains 跳）；每跳 50% 伤害并减速 60% 持续 0.4 秒 */
 function chainLightning(src, base, chains) {
   let from = src; const seen = [src], pts = [[src.x, src.y]];
-  shock(src);
+  applyShock(src, 0.4);
   for (let k = 0; k < chains; k++) {
-    let best = null, bd = 200 * 200;
+    let best = null, bd = 150 * 150;
     for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (e.dead || seen.indexOf(e) >= 0) continue; const d2 = (e.x - from.x) * (e.x - from.x) + (e.y - from.y) * (e.y - from.y); if (d2 < bd) { bd = d2; best = e; } }
     if (!best) break;
     seen.push(best); pts.push([best.x, best.y]);
-    damageEnemy(best, base * 0.6, false, 0, 0, 0);
-    if (!best.dead) shock(best);
+    const dx = best.x - from.x, dy = best.y - from.y, d = hyp(dx, dy) || 1;
+    applyDamage(best, base * 0.5, { sourceTag: 'shock', elements: SHOCK_ELS, kx: dx / d, ky: dy / d, kb: 0.25, textCol: '#9FF6FF' });
+    if (!best.dead) applyShock(best, 0.4);
     from = best;
   }
   if (pts.length > 1) { addBolt(pts); addWord('ZAP!', from.x, from.y - 20, '#5FF3FF', 26, 'zap', 380); SFX.zap(); }
 }
-
-/* 火势蔓延：被烧死的敌人爆成一团火，身边 70px 内的敌人有一半概率被点燃（被子弹打死的不传火）。
-   火势靠灼烧伤害自己推进：每传一代灼烧伤害 ×0.6，基础状态传到第二代就烧不死满血的疯子，火自然熄灭；
-   点了燃烧附魔后每秒伤害更高，火势才传得更深、更快 */
+/* 火势蔓延：燃烧中的敌人死亡时，引燃 80px 内的所有其他敌人。
+   火势靠灼烧伤害自己推进：每传一代灼烧伤害 ×0.6，传到烧不死人的强度就自然熄灭 */
 function fireSpread(e) {
   for (let i = 0; i < 6; i++) addFlame(e.x + rand(-e.r, e.r), e.y + rand(-e.r, e.r) * 0.6, rand(-50, 50), -rand(50, 130), rand(0.4, 0.7), rand(4, 7.5));
   for (let i = 0; i < 3; i++) addPart('spark', e.x, e.y, rand(-120, 120), -rand(60, 160), rand(0.3, 0.5), 1.8, '#FFD23F');
   if (e.burnDps <= 2.5) return;
-  const r2 = 70 * 70;
+  const dps = e.burnDps * 0.6, r2 = 80 * 80;
   for (let i = 0; i < enemies.length; i++) {
     const o = enemies[i];
-    if (o.dead || o.burnT > 0) continue;
-    const d2 = (o.x - e.x) * (o.x - e.x) + (o.y - e.y) * (o.y - e.y);
-    if (d2 < r2 && Math.random() < 0.5) ignite(o, e.burnDps * 0.6);
+    if (o.dead || o.burnTimer > 0) continue;
+    if ((o.x - e.x) * (o.x - e.x) + (o.y - e.y) * (o.y - e.y) < r2) applyBurn(o, dps, 3);
   }
 }
 
 function killEnemy(e, dx, dy) {
   if (e.dead) return; e.dead = true;
   stats.kills++;
+  const p = player;
+  if (e.burnTimer > 0) fireSpread(e);   // 燃烧中的敌人死亡：引燃身边的人（被烧死 / 被打死 / 自爆都算）
+  if (p.swT > 0) secondWindRevive();    // 殊死一搏期间的反杀
+  else if (p.alive && UPS.gunzerker.lvl) { p.gzKills++; if (p.gunzT <= 0 && p.gzKills >= 30) { p.gzKills -= 30; startGunzerker(); } }   // 双持狂暴：每累计击杀 30 人触发
   if (e.type === 1) { fuses.push({ x: e.x, y: e.y, t: rand(0.05, 0.16), kind: 'bomber' }); return; }   // 自爆矮人：短引信后爆炸
   SFX.kill();
   const blood = e.type === 0 ? ['#C0281F', '#8F1510', '#E9CDA6'] : ['#C0281F', '#8F1510', '#7B828A'];
@@ -1058,13 +1281,13 @@ function killEnemy(e, dx, dy) {
   addShake(e.type === 2 ? 3 : 1);
 }
 
-/* 爆炸：对范围内敌人造成衰减伤害（可误伤），可引爆附近油桶 */
-function explode(x, y, radius, dmgE, dmgP, big) {
+/* 爆炸：对范围内敌人造成衰减伤害（可误伤），可引爆附近油桶。tag 为结算页上的伤害来源（默认"环境爆炸"） */
+function explode(x, y, radius, dmgE, dmgP, big, tag) {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i]; if (e.dead) continue;
     const dx = e.x - x, dy = e.y - y, d = hyp(dx, dy) || 1;
     if (d > radius + e.r) continue;
-    damageEnemy(e, dmgE * (1 - 0.45 * d / (radius + e.r)), false, dx / d, dy / d, 3.5);
+    applyDamage(e, dmgE * (1 - 0.45 * d / (radius + e.r)), { sourceTag: tag || 'blast', kx: dx / d, ky: dy / d, kb: 3.5 });
   }
   if (dmgP > 0) hurtPlayer(dmgP, x, y);
   for (let i = solidsNear.length - 1; i >= 0; i--) { const q = solidsNear[i]; if (q.type === 'barrel' && hyp(q.x - x, q.y - y) < radius + 16) igniteBarrel(q, rand(0.08, 0.2)); }   // 倒序：点燃会从 solidsNear 移除
@@ -1076,6 +1299,48 @@ function explode(x, y, radius, dmgE, dmgP, big) {
   addShake(big ? 18 : 12); hitStop = Math.min(0.12, Math.max(hitStop, big ? 0.05 : 0.035));
   addWord(big ? 'KA-BOOM!' : 'BOOM!', x, y - 20, '#FF9A1F', big ? 56 : 44, 'boom', 120);
   SFX.boom();
+}
+
+/* ---- 泰迪尔：换弹 = 手雷。把手里的枪朝准星掷出，落到准星处（或半路撞上敌人 / 掩体）时炸开；残弹比例越高伤害越高 ---- */
+function throwGun(frac) {
+  const p = player, l = UPS.tediore.lvl, md = WEAPONS[p.weapon].muzzle;
+  let dx = mouse.wx - p.x, dy = mouse.wy - p.y, d = hyp(dx, dy) || 1;
+  if (d < 40) { dx = Math.cos(p.aim); dy = Math.sin(p.aim); d = 1; }                     // 准星贴在身上时：沿瞄准方向掷出
+  const dist = clamp(d, 110, 330);
+  throws.push({ x: p.x + Math.cos(p.aim) * md, y: p.y + Math.sin(p.aim) * md, tx: p.x + dx / d * dist, ty: p.y + dy / d * dist, rot: p.aim, w: p.weapon,
+    dmg: 250 * l * dmgScale() * (1 + UPS.damage.val) * (0.6 + 0.4 * clamp(frac, 0, 1)) });   // 空弹匣 60% → 满弹匣 100%
+  SFX.throwGun();
+}
+function updateThrows(dt) {
+  for (let i = throws.length - 1; i >= 0; i--) {
+    const t = throws[i], dx = t.tx - t.x, dy = t.ty - t.y, d = hyp(dx, dy) || 1, step = 820 * dt;
+    t.rot += dt * 24;
+    if (d <= step) { t.x = t.tx; t.y = t.ty; tedioreBlast(t); throws.splice(i, 1); continue; }
+    t.x += dx / d * step; t.y += dy / d * step;
+    if (Math.random() < 0.6) addPart('smoke', t.x, t.y, rand(-20, 20), rand(-30, 0), rand(0.25, 0.4), rand(3, 5), '#D9B377');
+    let hit = false;
+    for (let j = 0; j < solidsNear.length && !hit; j++) { const q = solidsNear[j]; if (!q.dead && q.hard && hitSolid(q, t.x, t.y, 8)) hit = true; }
+    for (let j = 0; j < enemies.length && !hit; j++) { const e = enemies[j]; if (!e.dead && hyp(e.x - t.x, e.y - t.y) < e.r + 9) hit = true; }
+    if (hit) { tedioreBlast(t); throws.splice(i, 1); }
+  }
+}
+function tedioreBlast(t) {
+  const R = 110 + 10 * (UPS.tediore.lvl - 1);
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (e.dead) continue;
+    const dx = e.x - t.x, dy = e.y - t.y, d = hyp(dx, dy) || 1;
+    if (d > R + e.r) continue;
+    applyDamage(e, t.dmg * (1 - 0.4 * d / (R + e.r)), { sourceTag: 'tediore', kx: dx / d, ky: dy / d, kb: 5, textCol: '#FFF2A8' });
+  }
+  for (let i = solidsNear.length - 1; i >= 0; i--) { const q = solidsNear[i]; if (q.type === 'barrel' && hyp(q.x - t.x, q.y - t.y) < R + 16) igniteBarrel(q, rand(0.08, 0.2)); }
+  booms.push({ x: t.x, y: t.y, r: R, t: 0, max: 0.55, rot: rand(TAU), pts: starPts(12, 0.38), ring: false });
+  for (let i = 0; i < 12; i++) {   // 硕大的漫画黑烟云
+    const a = i / 12 * TAU + rand(-0.2, 0.2), s = rand(50, 190);
+    addPart('smoke', t.x + Math.cos(a) * 12, t.y + Math.sin(a) * 12, Math.cos(a) * s, Math.sin(a) * s - 30, rand(0.5, 0.85), rand(10, 16), i % 3 ? '#4A3C32' : '#7A6A5A');
+  }
+  for (let i = 0; i < 16; i++) { const a = rand(TAU), s = rand(220, 560); addPart('spark', t.x, t.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.45), 2.6, i % 2 ? '#FFD23F' : '#FF8A1E'); }
+  addDecal('scorch', t.x, t.y, R * 0.7); addShake(14); hitStop = Math.max(hitStop, 0.04);
+  addWord('KABOOM!', t.x, t.y - 24, '#FF9A1F', 60, 'tediore', 300); SFX.boom();
 }
 
 function igniteBarrel(p, delay) {
@@ -1115,18 +1380,22 @@ function dropXp(e) {
 }
 
 function collect(d) {
-  if (d.type === 'xp') { player.xp += d.v; stats.xp += d.v; xpCount--; SFX.pickup(); }
+  if (d.type === 'xp') {
+    player.xp += d.v; stats.xp += d.v; xpCount--; SFX.pickup();
+    if (UPS.bloodlust.lvl && player.blood < 20) { const was = player.blood; player.blood++; if (was < 20 && player.blood >= 20) SFX.vault(); }   // 肾上腺素：每颗晶体 +1 层狂热
+  }
+  if (d.type === 'xp' && UPS.bloodlust.lvl) player.bloodT = 0;
   else if (d.type === 'hp') heal(Math.round(player.hpMax * 0.35));
   else if (d.type === 'chest') openChest();
 }
 function openChest() {
-  const avail = Object.keys(UPS).filter(k => UPS[k].val < UPS[k].cap - 1e-9);
+  const avail = Object.keys(UPS).filter(k => !maxedOut(UPS[k]));
   whiteFlash = 0.6; addWord('LOOT!', player.x, player.y - 44, '#FFD23F', 46, null, 0); SFX.loot(); addShake(6);
   for (let i = 0; i < 14; i++) { const a = rand(TAU), s = rand(120, 360); addPart('spark', player.x, player.y - 10, Math.cos(a) * s, Math.sin(a) * s, rand(0.3, 0.6), 3, '#FFD23F'); }
   if (!avail.length) { heal(player.hpMax); toast('宝箱：全部已满级 → 生命全满！', '#FFD23F'); return; }
-  const k = pick(avail), ri = rollRarity();
-  applyUpgrade(k, ri);
-  toast('宝箱：' + UPS[k].name + ' → Lv ' + UPS[k].lvl + '（' + RARITY[ri].name + '）', RARITY[ri].col);
+  const k = pick(avail);
+  applyUpgrade(k);
+  toast('宝箱：' + UPS[k].name + ' → Lv ' + UPS[k].lvl, TIER[UPS[k].tier].col);
 }
 
 function updateEnemies(dt) {
@@ -1135,20 +1404,23 @@ function updateEnemies(dt) {
     const e = enemies[i]; if (e.dead) continue;
     if (e.flash > 0) e.flash -= dt;
     if (e.spawnT > 0) e.spawnT -= dt;
-    if (e.shockT > 0) e.shockT -= dt;
+    if (e.shockSlowTimer > 0) e.shockSlowTimer -= dt;
+    if (e.corrosiveTimer > 0) { e.corrosiveTimer -= dt; if (Math.random() < dt * 7) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-14, 14), rand(20, 50), rand(0.45, 0.7), rand(2, 3.4) * e.scale, '#8CFF3A'); }   // 腐蚀：往下滴的荧光绿气泡
+    if (e.slagTimer > 0) { e.slagTimer -= dt; if (Math.random() < dt * 3) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), rand(20, 44), rand(0.45, 0.7), rand(2, 3.2) * e.scale, '#C44DFF'); }
     // 燃烧：按 0.4s 结算一次持续伤害；身上不断窜出火苗和火星（粒子太多时降低火苗频率）
-    if (e.burnT > 0) {
-      e.burnT -= dt; e.burnAcc += e.burnDps * dt; e.burnTick -= dt;
+    if (e.burnTimer > 0) {
+      e.burnTimer -= dt; e.burnAcc += e.burnDps * dt; e.burnTick -= dt;
       const bsc = e.scale * spawnScale(e);
       if (Math.random() < dt * (parts.length > 260 ? 5 : 14)) addFlame(e.x + rand(-e.r, e.r) * 0.7 * bsc, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), -rand(30, 60), rand(0.35, 0.6), rand(3.5, 6) * bsc);
       if (Math.random() < dt * 3) addPart('spark', e.x + rand(-e.r, e.r) * 0.6, e.y, rand(-30, 30), -rand(50, 110), rand(0.25, 0.45), 1.6, '#FFD23F');
       if (e.burnTick <= 0) {
-        e.burnTick = 0.4; const d = e.burnAcc; e.burnAcc = 0; e.hp -= d; addText(e.x, e.y - e.r, d, 2, '#FF8A1E'); SFX.burn();
-        if (e.hp <= 0) { killEnemy(e, 0, -1); fireSpread(e); continue; }   // 被烧死：爆成一团火并把火势传给身边的人
+        e.burnTick = 0.4; const d = e.burnAcc; e.burnAcc = 0;
+        applyDamage(e, d, { sourceTag: 'fire', elements: FIRE_ELS, dot: true }); SFX.burn();   // 灼烧也走统一结算（紫渣 / 腐蚀会放大它）
+        if (e.dead) continue;
       }
     }
     let dx = p.x - e.x, dy = p.y - e.y; const d = hyp(dx, dy) || 1; dx /= d; dy /= d;
-    let sp = e.speed * (e.shockT > 0 ? (e.type === 2 ? 0.5 : 0.2) : 1);   // 被电到：麻痹减速（重装兵抗性更高）
+    let sp = e.speed * (e.shockSlowTimer > 0 ? 0.4 : 1);   // 被电到：减速 60%
     if (e.type === 1) {
       // 自爆矮人：进入 270px 后闪烁红光并加速
       if (p.alive && d < 270) e.arming = true;
@@ -1198,14 +1470,14 @@ function separate() {
 }
 
 function onBulletHit(b, e) {
-  const crit = Math.random() < player.crit, sp = hyp(b.vx, b.vy), hitCol = b.style === 1 ? '#FFB01E' : b.style === 2 ? '#9FF6FF' : crit ? '#FFE23F' : '#FFF6A0';
-  damageEnemy(e, b.dmg * (crit ? b.critMul : 1), crit, b.vx / sp, b.vy / sp, b.kb);
-  if (crit) SFX.crit(); else SFX.hit();
-  for (let i = 0; i < 2; i++) addPart('spark', b.x, b.y, -b.vx * rand(0.1, 0.3) + rand(-90, 90), -b.vy * rand(0.1, 0.3) + rand(-90, 90), rand(0.12, 0.22), 2, hitCol);
-  if (crit) addWord('CRIT!', e.x + rand(-6, 6), e.y - e.r - 14, '#FFE23F', 28, 'crit', 260);
-  // 元素触发：用的是这发子弹出膛时的概率与强度
-  if (!e.dead && b.fire && Math.random() < b.fireC) ignite(e, b.burnDps);
-  if (!e.dead && b.shock && Math.random() < b.shockC) chainLightning(e, b.dmg, b.chains);
+  const sp = hyp(b.vx, b.vy) || 1, nx = b.vx / sp, ny = b.vy / sp;
+  if (b.rocket) {   // 托格火箭：命中即炸。直接命中的那个敌人顺便吃元素触发；带穿透时炸完继续飞
+    rocketBlast(b, b.x, b.y, e);
+    if (!e.dead) { if (b.slag) applySlag(e, 4 + UPS.slag.lvl); elementProcs(b, e); }
+    if (b.pierce > 0) { b.pierce--; b.dmg *= 0.85; return; }
+    b.dead = true; return;
+  }
+  bulletHit(b, e, nx, ny, 1, false);
   if (b.pierce > 0) { b.pierce--; b.dmg *= 0.85; return; }   // 穿透：继续飞行，伤害衰减
   b.dead = true;
 }
@@ -1235,9 +1507,9 @@ function bulletCollide(b) {
     const q = solidsNear[i]; if (q.dead) continue;
     const ddx = q.x - b.x, ddy = q.y - b.y, rb = (q.br || q.cr + 3) + b.r;
     if (ddx > rb || ddx < -rb || ddy > rb || ddy < -rb) continue;
-    if (q.type === 'barrel') { if (ddx * ddx + ddy * ddy < (14 + b.r) * (14 + b.r)) { b.dead = true; igniteBarrel(q, 0.05); return true; } continue; }
+    if (q.type === 'barrel') { if (ddx * ddx + ddy * ddy < (14 + b.r) * (14 + b.r)) { b.dead = true; igniteBarrel(q, 0.05); if (b.rocket) rocketBlast(b, b.x, b.y, null); return true; } continue; }
     if (!q.hard || !hitSolid(q, b.x, b.y, b.r)) continue;
-    b.dead = true; coverHit(q, b); return true;
+    b.dead = true; if (b.rocket) rocketBlast(b, b.x, b.y, null); else coverHit(q, b); return true;   // 火箭撞上掩体也会炸
   }
   return false;
 }
@@ -1249,7 +1521,11 @@ function updateBullets(dt) {
     const dx = b.vx * dt, dy = b.vy * dt, steps = Math.max(1, Math.ceil(hyp(dx, dy) / 14));
     let dead = false;
     for (let s = 0; s < steps && !dead; s++) { b.x += dx / steps; b.y += dy / steps; dead = bulletCollide(b); }
-    if (b.style === 1 && Math.random() < 0.3) addFlame(b.x, b.y, rand(-10, 10), rand(-30, -5), 0.22, 2.2);            // 霰弹拖着小火苗
+    if (b.rocket) {   // 托格火箭：尾部喷出橙色火焰和灰烟
+      if (Math.random() < 0.75) addPart('smoke', b.x - b.vx * 0.012, b.y - b.vy * 0.012, rand(-18, 18), rand(-18, 18) - 12, rand(0.3, 0.5), rand(3, 5), Math.random() < 0.5 ? '#7A6A5A' : '#D9B377');
+      if (Math.random() < 0.55) addPart('spark', b.x - b.vx * 0.009, b.y - b.vy * 0.009, -b.vx * rand(0.08, 0.2) + rand(-40, 40), -b.vy * rand(0.08, 0.2) + rand(-40, 40), rand(0.1, 0.2), 2, Math.random() < 0.5 ? '#FF8A1E' : '#FFD23F');
+    }
+    else if (b.style === 1 && Math.random() < 0.3) addFlame(b.x, b.y, rand(-10, 10), rand(-30, -5), 0.22, 2.2);            // 霰弹拖着小火苗
     else if (b.style === 2 && Math.random() < 0.08) addPart('spark', b.x, b.y, rand(-60, 60), rand(-60, 60), 0.1, 1.5, '#9FF6FF');   // 电光弹偶尔迸出电火花
     if (!dead && (Math.abs(b.x - cam.x) > vw + 140 || Math.abs(b.y - cam.y) > vh + 140)) dead = true;   // 屏幕外子弹回收
     if (dead) poolKill(bullets, bulletPool, i);
@@ -1276,33 +1552,34 @@ function sweepEnemies() {
 /* ============================================================
    升级 / 三选一
    ============================================================ */
-function rollRarity() { const r = Math.random(); return r < 0.58 ? 0 : r < 0.84 ? 1 : r < 0.955 ? 2 : 3; }
-function applyUpgrade(key, ri) {
-  const u = UPS[key]; if (!u) return;
-  u.val = Math.min(u.cap, u.val + u.base * RARITY[ri].mult); u.lvl++;
-  if (u.val >= u.cap - 1e-9) u.val = u.cap;
+/* 应用一张卡：等级 +1，数值 = 每级增量 × 等级，到上限为止。上限按"数值"判定（基础属性卡的上限是数值，如射速 +200%，和等级不是一回事） */
+const maxedOut = u => u.val >= u.cap - 1e-9;
+function applyUpgrade(key) {
+  const u = UPS[key]; if (!u || maxedOut(u)) return;
+  u.lvl++; u.val = Math.min(u.cap, u.base * u.lvl);
   recalcStats();
 }
 function makeCard(key) {
-  const u = UPS[key], ex = EXTRA[key];
-  return { key, name: ex ? ex.name : u.name, type: ex ? ex.type : u.type, desc: ex ? ex.desc : u.desc, rarity: rollRarity(),
-    isNew: !ex && !u.lvl, extra: !!ex, fill: ex ? 1 : clamp(u.val / u.cap, 0, 1), lvl: ex ? 0 : u.lvl,
+  const u = UPS[key], ex = EXTRA[key], d = ex || u;
+  return { key, name: d.name, sub: d.sub || '', type: d.type, tier: d.tier, tag: d.tag || '', desc: d.desc, extra: !!ex,
+    isNew: !ex && !u.lvl, fill: ex ? 1 : clamp(u.val / u.cap, 0, 1), lvl: ex ? 0 : u.lvl,
     rot: 0, hover: 0, wasHover: false, x: -9999, y: -9999, w: 0, h: 0 };
 }
 function openLevelUp() {
-  const pool = Object.keys(UPS).filter(k => UPS[k].val < UPS[k].cap - 1e-9);
+  const pool = Object.keys(UPS).filter(k => !maxedOut(UPS[k]));
   cards = [];
   const rots = [-0.07, 0.015, 0.075];
+  const wgt = k => TIER[UPS[k].tier].w * (UPS[k].lvl === 0 ? 1.35 : 1);   // 没拿过的卡更容易出现；传奇卡更稀有
   while (cards.length < 3 && pool.length) {
-    let tot = 0; for (const k of pool) tot += UPS[k].lvl === 0 ? 1.35 : 1;
+    let tot = 0; for (const k of pool) tot += wgt(k);
     let r = Math.random() * tot, idx = 0;
-    for (; idx < pool.length; idx++) { r -= UPS[pool[idx]].lvl === 0 ? 1.35 : 1; if (r <= 0) break; }
+    for (; idx < pool.length; idx++) { r -= wgt(pool[idx]); if (r <= 0) break; }
     idx = Math.min(idx, pool.length - 1);
     const key = pool.splice(idx, 1)[0], c = makeCard(key);
     c.rot = rots[cards.length]; cards.push(c);
   }
   const fb = ['heal', 'nuke', 'frenzy'];   // 全部满级后的补给卡
-  for (let i = 0; i < fb.length && cards.length < 3; i++) { const c = makeCard(fb[i]); c.rot = rots[cards.length]; c.rarity = 0; cards.push(c); }
+  for (let i = 0; i < fb.length && cards.length < 3; i++) { const c = makeCard(fb[i]); c.rot = rots[cards.length]; cards.push(c); }
   state = ST.LEVEL; levelT = 0; picking = null; uiRects.skip = null;
   for (let i = words.length - 1; i >= 0; i--) if (words[i].screen) poolKill(words, wordPool, i);   // 连续升级时只保留一个 LEVEL UP!
   addWord('LEVEL UP!', W / 2 + 268, 88, '#5FF3FF', 40, null, 0, true);
@@ -1318,7 +1595,7 @@ function shockwave() {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i]; if (e.dead) continue;
     const dx = e.x - player.x, dy = e.y - player.y, d = hyp(dx, dy); if (d > R) continue;
-    damageEnemy(e, 220 * (1 + gameTime / 120), false, dx / (d || 1), dy / (d || 1), 6);
+    applyDamage(e, 220 * (1 + gameTime / 120), { sourceTag: 'nuke', kx: dx / (d || 1), ky: dy / (d || 1), kb: 6 });
   }
   booms.push({ x: player.x, y: player.y, r: R * 1.05, t: 0, max: 0.55, ring: true, rot: 0, pts: null });
   addShake(20); hitStop = 0.08; addWord('KA-BOOM!', player.x, player.y - 40, '#FFD23F', 64, null, 0); SFX.boom();
@@ -1339,7 +1616,7 @@ function resolvePick() {
     if (c.key === 'heal') heal(Math.round(player.hpMax * 0.4));
     else if (c.key === 'nuke') shockwave();
     else if (c.key === 'frenzy') player.frenzyT = 15;
-    else applyUpgrade(c.key, c.rarity);
+    else applyUpgrade(c.key);
   }
   pendingLevels--;
   if (pendingLevels > 0) openLevelUp();
@@ -1356,8 +1633,8 @@ function startGame() {
   Snd.unlock();
   for (const k in UPS) { UPS[k].val = 0; UPS[k].lvl = 0; }
   player = newPlayer();
-  stats = { kills: 0, damage: 0, crits: 0, maxCrit: 0, dmgTaken: 0, xp: 0, dashes: 0 };
-  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, zaps, ghosts, decals, toasts, solidsNear].forEach(a => { a.length = 0; });
+  stats = { kills: 0, damage: 0, crits: 0, maxCrit: 0, dmgTaken: 0, xp: 0, dashes: 0, dmgBy: {} };   // dmgBy：按伤害来源记账（结算界面的伤害占比）
+  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, zaps, tracers, throws, ghosts, decals, toasts, solidsNear].forEach(a => { a.length = 0; });
   chunks.clear(); deadBarrels.clear();
   gameTime = 0; spawnT = 1.4; nextWaveT = 40; waveN = 0; nextBossT = 100; pendingLevels = 0; picking = null; hitStop = 0;
   hurtFlash = 0; whiteFlash = 0; speedT = 0; hintT = 14; xpCount = 0; banner = null;
@@ -1700,7 +1977,35 @@ function buildVignettes() {
   };
   vignCv = mk('rgba(40,20,8,0)', 'rgba(30,14,6,0.5)');
   vignRed = mk('rgba(200,20,10,0)', 'rgba(200,20,10,0.55)');
+  buildGunzBorder();
 }
+/* 双持狂暴的屏幕边框：橙红网点从四边向内逐渐变小变稀，外圈一道黑色粗线。半分辨率位图，随窗口尺寸重建 */
+let gzCv = null;
+function buildGunzBorder() {
+  const w = Math.ceil(W / 2), h = Math.ceil(H / 2), cv = mkCanvas(w, h), g = cv.getContext('2d');
+  // [内沿, 外沿, 网点半径, 颜色, 网格错位]：三圈网点互不重叠，越靠外越大越红
+  const bands = [[0, 22, 3.7, '#E8452C', 0], [22, 44, 2.8, '#FF7A1A', 5], [44, 66, 2.0, '#FFB01E', 2.5]];
+  for (const [a, b, r, col, off] of bands) {
+    const t = mkCanvas(10, 10), tg = t.getContext('2d'); tg.fillStyle = col; circ(tg, 5, 5, r); tg.fill();
+    g.save(); g.translate(off, off); g.fillStyle = g.createPattern(t, 'repeat');
+    g.fillRect(-off, a - off, w, b - a); g.fillRect(-off, h - b - off, w, b - a); g.fillRect(a - off, b - off, b - a, h - 2 * b); g.fillRect(w - b - off, b - off, b - a, h - 2 * b);
+    g.restore();
+  }
+  g.lineWidth = 5; g.strokeStyle = '#000'; g.strokeRect(2.5, 2.5, w - 5, h - 5);
+  gzCv = cv;
+}
+function drawGunzBorder() {
+  const p = player, k = clamp(Math.min((5 + UPS.gunzerker.lvl - 1 - p.gunzT) / 0.25, p.gunzT / 0.3), 0, 1);   // 触发 / 结束时的淡入淡出
+  ctx.globalAlpha = k * (0.84 + Math.sin(uiT * 16) * 0.12);
+  if (gzCv) ctx.drawImage(gzCv, 0, 0, W, H);
+  for (let i = 0; i < 9; i++) {   // 四边跳动的火苗
+    const side = (Math.random() * 4) | 0, t = Math.random(), d = Math.random() * 26;
+    const x = side === 0 ? t * W : side === 1 ? W - d : side === 2 ? t * W : d, y = side === 0 ? d : side === 1 ? t * H : side === 2 ? H - d : t * H;
+    blit(flameSprite((Math.random() * 3) | 0), x, y, rand(1.6, 2.8), 0.85);
+  }
+  ctx.globalAlpha = 1;
+}
+
 
 /* 绘制地面，并构建按 y 排序的绘制队列（高物件 / 敌人 / 玩家 / 掉落物） */
 function drawGround(x0, y0, x1, y1) {
@@ -1806,7 +2111,8 @@ function drawDrop(d) {
 /* ============================================================
    子弹：拖尾 + 弹体 + 亮芯合成一张位图（三种元素颜色）
    ============================================================ */
-/* 三种弹体位图（拖尾 + 弹体 + 亮芯）：0 突击步枪（黄色长曳光）1 霰弹（橙红火焰弹头）2 元素冲锋枪（青色电光弹） */
+/* 弹体位图（拖尾 + 弹体 + 亮芯）：0 突击步枪（黄色长曳光）1 霰弹（橙红火焰弹头）2 元素冲锋枪（青色电光弹）
+   3 托格微型火箭（红白粗描边 + 尾焰）4 紫渣弹（紫色曳光，通用于三种枪）5 紫渣火箭 */
 const BULLET_SPR = [];
 function buildBulletSprites() {
   const mk = (col, core, rx, ry, trail, tw) => {
@@ -1817,14 +2123,35 @@ function buildBulletSprites() {
     g.beginPath(); g.ellipse(bx + rx * 0.05, cy, rx * 0.5, ry * 0.42, 0, 0, TAU); g.fillStyle = core; g.fill();
     return { cv, w, h, ax: bx, ay: cy, r: ry };
   };
+  /* 小火箭：弹体 + 弹头 + 两道环带 + 尾翼 + 尾焰，全部粗黑描边（弹尖在 bx + 14） */
+  const rocket = (body, tip) => {
+    const w = 64, h = 24, R = 3, cv = mkCanvas(w * R, h * R), g = cv.getContext('2d'), cy = h / 2, bx = 46;
+    g.setTransform(R, 0, 0, R, 0, 0); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#000'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(bx - 15, cy - 3.2); g.lineTo(bx - 15, cy + 3.2); g.lineTo(bx - 31, cy); g.closePath(); g.fillStyle = '#FF8A1E'; g.fill(); g.stroke();   // 尾焰
+    g.beginPath(); g.moveTo(bx - 15, cy - 1.4); g.lineTo(bx - 15, cy + 1.4); g.lineTo(bx - 23, cy); g.closePath(); g.fillStyle = '#FFF6A0'; g.fill();
+    for (const s of [-1, 1]) { g.beginPath(); g.moveTo(bx - 7, cy + s * 4); g.lineTo(bx - 16, cy + s * 8.5); g.lineTo(bx - 16, cy + s * 4); g.closePath(); g.fillStyle = body; g.fill(); g.stroke(); }   // 尾翼
+    g.beginPath(); g.moveTo(bx - 15, cy - 4.6); g.lineTo(bx + 5, cy - 4.6); g.lineTo(bx + 14, cy); g.lineTo(bx + 5, cy + 4.6); g.lineTo(bx - 15, cy + 4.6); g.closePath();   // 弹体
+    g.fillStyle = body; g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(bx + 5, cy - 4.6); g.lineTo(bx + 14, cy); g.lineTo(bx + 5, cy + 4.6); g.closePath(); g.fillStyle = tip; g.fill(); g.stroke();           // 弹头
+    for (const x of [bx - 12, bx - 4]) { g.fillStyle = tip; g.fillRect(x, cy - 4.6, 4, 9.2); g.lineWidth = 1.3; g.strokeRect(x, cy - 4.6, 4, 9.2); g.lineWidth = 2; }   // 环带
+    return { cv, w, h, ax: bx, ay: cy, r: 5 };
+  };
   BULLET_SPR[0] = mk('#FFE45C', '#FFFFFF', 8.6, 3.2, 36, 4.2);
   BULLET_SPR[1] = mk('#FF7A1A', '#FFE45C', 7.2, 3.6, 22, 5.4);
   BULLET_SPR[2] = mk('#5FF3FF', '#FFFFFF', 6.2, 2.7, 26, 3.4);
+  BULLET_SPR[3] = rocket('#F4F1E8', '#E8452C');
+  BULLET_SPR[4] = mk('#C44DFF', '#F3E0FF', 8.6, 3.2, 36, 4.2);
+  BULLET_SPR[5] = rocket('#E9C8FF', '#8E2FD6');
 }
 function drawBullets() {
+  ctx.lineCap = 'round';
   for (let i = 0; i < bullets.length; i++) {
-    const b = bullets[i], s = BULLET_SPR[b.style], k = b.r / s.r;
+    const b = bullets[i], s = BULLET_SPR[b.slag ? (b.rocket ? 5 : 4) : b.style], k = b.r / s.r;
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
+    if (b.hyp) {   // 亥伯龙锁定：拖尾变成青色激光束（黑边 + 青色 + 白芯）
+      const tail = -s.ax * k + 10;
+      for (let pass = 0; pass < 3; pass++) { ctx.lineWidth = pass === 0 ? 7 : pass === 1 ? 3.6 : 1.4; ctx.strokeStyle = pass === 0 ? '#000' : pass === 1 ? '#5FF3FF' : '#FFFFFF'; ctx.beginPath(); ctx.moveTo(tail, 0); ctx.lineTo(tail - 64, 0); ctx.stroke(); }
+    }
     ctx.drawImage(s.cv, -s.ax * k, -s.ay * k, s.w * k, s.h * k);
     ctx.restore();
   }
@@ -1836,6 +2163,7 @@ function buildStaticSprites() {
   buildGhostSprites();
   // 粒子 / 残影用到的全部颜色在启动时预生成，运行中不再新建画布
   for (const c of ['#4A3C32', '#7A6A5A', '#D9B377']) smokeSprite(c);
+  bubbleSprite('#8CFF3A'); bubbleSprite('#C44DFF');
   for (const c of ['#C0281F', '#8F1510', '#E9CDA6', '#7B828A', '#E9A21B', '#F2C9A0', '#8C3B1E']) chunkSprite(c);
   for (let v = 0; v < 3; v++) flameSprite(v);   // 火苗三种变体
   zapSprite();
@@ -1912,7 +2240,7 @@ function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil, weapon) 
   // 后手 → 枪 → 前手：两条两段式手臂（肩 → 肘 → 手），前手压在枪上，握点随枪一起后坐
   const hxF = (w === 2 ? 16.5 : w === 1 ? 24 : 19) + rx;   // 前手握点：冲锋枪线圈座 / 霰弹枪护木 / 步枪枪管
   limb(g, -1, 10, 3, 15.5, 12 + rx, 3.5, 6.5, 5, PPAL.jacket, PPAL.skin, F, S, 4);
-  drawGun(g, w, rx, F, S, sil);
+  if (w >= 0) drawGun(g, w, rx, F, S, sil);   // w = -1：泰迪尔装填期间枪已掷出，空手
   limb(g, -1, -10, 7.5, -14.5, hxF, -1.8, 6.5, 5, PPAL.jacket, PPAL.skin, F, S, 4);
   // 肩甲压在手臂根部上 + 战损划痕
   for (let s = -1; s <= 1; s += 2) { g.beginPath(); g.arc(-2, s * 11.5, 5.6, 0, TAU); g.fillStyle = F(PPAL.pad); g.fill(); g.strokeStyle = S(); g.lineWidth = 2.5; g.stroke(); }
@@ -2005,14 +2333,35 @@ function drawMuzzleFlash(x, y, aim, w, k, v, sc) {
 
 function drawPlayer() {
   const p = player;
-  if (p.iframes > 0 && p.dashT <= 0 && Math.floor(uiT * 22) % 2 === 0) return;   // 受击无敌闪烁
-  const w = p.swapT > 0.11 ? p.prevW : p.weapon, ca = Math.cos(p.aim), sa = Math.sin(p.aim), md = WEAPONS[p.weapon].muzzle;   // 换枪前半段手里仍是旧枪
+  if (p.iframes > 0 && p.dashT <= 0 && p.swT <= 0 && Math.floor(uiT * 22) % 2 === 0) return;   // 受击无敌闪烁
+  const ca = Math.cos(p.aim), sa = Math.sin(p.aim), md = WEAPONS[p.weapon].muzzle;
+  const w = p.rel[p.weapon] > 0 && UPS.tediore.lvl ? -1 : p.swapT > 0.11 ? p.prevW : p.weapon;   // 泰迪尔：装填期间枪已经掷出去了；换枪前半段手里仍是旧枪
   if (p.muzzle > 0) {   // 枪口焰：先在地面铺一团枪口投光，画完角色后把火焰压在枪口上
     const k = clamp(p.muzzle / MUZ_T[p.weapon], 0, 1);
     blit(MUZ_GLOW[p.weapon === 2 ? 1 : 0], p.x + ca * (md - 8), p.y + sa * (md - 8), 0.55 + 0.3 * k, 0.5 * k);
   }
   drawPlayerBody(ctx, p.x, p.y, p.aim, p.walk, p.moving, p.recoil, 1, p.flash > 0 ? '#FFFFFF' : null, w);
-  if (p.muzzle > 0) drawMuzzleFlash(p.x + ca * md, p.y + sa * md, p.aim, p.weapon, p.muzzle / MUZ_T[p.weapon], p.muzV, 1);
+  if (p.muzzle > 0 && w >= 0) drawMuzzleFlash(p.x + ca * md, p.y + sa * md, p.aim, p.weapon, p.muzzle / MUZ_T[p.weapon], p.muzV, 1);
+  // 双持狂暴：左右两侧各多一把枪，跟着一起开火
+  if (p.gunzT > 0) for (let s = -1; s <= 1; s += 2) {
+    const a = p.aim + s * 0.38, gx = p.x - sa * 15 * s, gy = p.y + ca * 15 * s;
+    ctx.save(); ctx.translate(gx, gy); ctx.rotate(a); ctx.scale(1.12, 1.12); drawGun(ctx, p.weapon, 0, c => c, () => '#000', null); ctx.restore();
+    if (p.muzzle > 0) drawMuzzleFlash(gx + Math.cos(a) * md * 1.12, gy + Math.sin(a) * md * 1.12, a, p.weapon, clamp(p.muzzle / MUZ_T[p.weapon], 0, 1), p.muzV, 0.6);
+  }
+  // 亥伯龙锁定：枪口浮现蓝色全息护盾线框（旋转的六边形 + 扫描线，带闪烁）
+  if (p.hypLock && UPS.hyperion.lvl) {
+    ctx.save(); ctx.translate(p.x + ca * (md + 11), p.y + sa * (md + 11)); ctx.rotate(p.aim);
+    ctx.globalAlpha = 0.6 + Math.sin(uiT * 30) * 0.16; ctx.lineJoin = 'round';
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + uiT * 1.6, x = Math.cos(a) * 13, y = Math.sin(a) * 10; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); } ctx.closePath();
+    ctx.lineWidth = 4.5; ctx.strokeStyle = 'rgba(0,18,36,0.75)'; ctx.stroke(); ctx.lineWidth = 2.2; ctx.strokeStyle = '#5FF3FF'; ctx.stroke();
+    ctx.globalAlpha *= 0.5; ctx.lineWidth = 1; ctx.beginPath(); for (let j = -1; j <= 1; j++) { ctx.moveTo(-12, j * 5); ctx.lineTo(12, j * 5); } ctx.stroke();
+    ctx.restore();
+  }
+  // 肾上腺素叠满 20 层：头顶悬浮着旋转的秘藏符号
+  if (p.blood >= 20 && UPS.bloodlust.lvl) {
+    ctx.save(); ctx.translate(p.x, p.y - 30 + Math.sin(uiT * 5) * 1.5); ctx.scale(Math.max(0.16, Math.abs(Math.cos(uiT * 4.5))), 1);
+    drawIcon('vault', 0, 0, 11, '#FFD23F'); ctx.restore();
+  }
   if (p.shieldFx > 0) {
     ctx.globalAlpha = clamp(p.shieldFx / 0.3, 0, 1);
     ctx.beginPath(); ctx.arc(p.x, p.y, 23, 0, TAU); ctx.strokeStyle = '#000'; ctx.lineWidth = 5.5; ctx.stroke(); ctx.lineWidth = 3; ctx.strokeStyle = '#5FF3FF'; ctx.stroke();
@@ -2156,28 +2505,56 @@ function enemyAtlas(type, phases, R, sil) {
 function buildEnemySprites() {
   SPR.types = [0, 1, 2].map(t => ({ half: SPR.half[t], phases: enemyAtlas(t, t === 2 ? 1 : 2, RES, null), white: null, red: null }));
 }
+/* 给已有的图集整体换色（比把敌人重新矢量渲染一遍便宜得多）：白色剪影 → 任意纯色。scale < 1 时顺带降采样，省显存（半透明叠色用不着满分辨率） */
+function tintAtlas(src, col, scale) {
+  const k = scale || 1;
+  return src.map(a => {
+    const cv = mkCanvas(Math.ceil(a.cv.width * k), Math.ceil(a.cv.height * k)), g = cv.getContext('2d');
+    g.drawImage(a.cv, 0, 0, cv.width, cv.height); g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(0, 0, cv.width, cv.height);
+    return { cv, cw: a.cw * k, bb: a.bb.map(b => b.map(v => v * k)) };
+  });
+}
 function buildFlashSprites() {
   for (let t = 0; t < 3; t++) {
-    SPR.types[t].white = enemyAtlas(t, t === 2 ? 1 : 2, 1.5, '#FFFFFF');
-    SPR.types[t].fire = enemyAtlas(t, t === 2 ? 1 : 2, 1.5, '#FF7A1A');   // 燃烧：橙色剪影
-    if (t === 1) SPR.types[t].red = enemyAtlas(1, 2, 1.5, '#FF3B2E');
+    const T = SPR.types[t], W = enemyAtlas(t, t === 2 ? 1 : 2, 1.5, '#FFFFFF');
+    T.white = W;
+    T.fire = tintAtlas(W, '#FF7A1A', 0.66);   // 燃烧：橙色
+    T.red = tintAtlas(W, '#FF2A1E');          // 自爆预警 / 殊死一搏：红色
+    T.blue = tintAtlas(W, '#49C6FF', 0.66);   // 电击：电蓝色
+    T.acid = tintAtlas(W, '#8CFF3A', 0.66);   // 腐蚀：荧光绿
+    T.slag = tintAtlas(W, '#B44CFF', 0.66);   // 紫渣：亮紫
   }
 }
-
+/* 把敌人图集的某一帧贴到屏幕上（帧序号 k、相位 ph、抖动 jx / jy 都由调用方算好） */
+function enemyBlit(e, T, A, k, ph, jx, jy, alpha) {
+  const sc = e.scale * spawnScale(e), w = T.half * 2 * sc, u = w / A.cw, bb = A.bb[k], bw = bb[2] - bb[0], bh = bb[3] - bb[1];
+  if (alpha < 1) ctx.globalAlpha = alpha;
+  ctx.drawImage(A.cv, (k % SPR.cols) * A.cw + bb[0], Math.floor(k / SPR.cols) * A.cw + bb[1], bw, bh,
+    e.x + jx - w / 2 + bb[0] * u, e.y + jy - w / 2 - Math.abs(Math.sin(e.walk)) * 1.3 * sc + bb[1] * u, bw * u, bh * u);
+  if (alpha < 1) ctx.globalAlpha = 1;
+}
 function drawEnemy(e) {
   const T = SPR.types[e.type], n = SPR.n, k = ((Math.round(e.ang / TAU * n) % n) + n) % n;
   const two = T.phases.length > 1, ph = two && Math.sin(e.walk) < 0 ? 1 : 0;
   let A = T.phases[ph], jx = 0, jy = 0;
   if (e.flash > 0 && T.white) A = T.white[ph];   // 受击瞬间闪白
   else if (e.type === 1 && e.arming && T.red && Math.floor(uiT * (e.armT > 0.5 ? 22 : 12)) % 2 === 0) A = T.red[ph];   // 引信：红白交替闪烁
-  else if (e.shockT > 0 && T.white) {   // 被电到：高频闪白 + 抽搐
-    if (Math.floor(uiT * 40) % 2 === 0) A = T.white[ph];
+  else if (e.shockSlowTimer > 0 && T.white) {   // 被电到：高频闪白 / 电蓝 + 抽搐
+    A = (Math.floor(uiT * 40) % 2 === 0 || !T.blue) ? T.white[ph] : T.blue[ph];
     jx = rand(-1.4, 1.4); jy = rand(-1.4, 1.4);
   }
-  else if (e.burnT > 0 && T.fire && Math.floor(uiT * 9 + e.t) % 4 === 0) A = T.fire[ph];   // 燃烧：周期性闪橙
-  const sc = e.scale * spawnScale(e), w = T.half * 2 * sc, u = w / A.cw, bb = A.bb[k], bw = bb[2] - bb[0], bh = bb[3] - bb[1];
-  ctx.drawImage(A.cv, (k % SPR.cols) * A.cw + bb[0], Math.floor(k / SPR.cols) * A.cw + bb[1], bw, bh,
-    e.x + jx - w / 2 + bb[0] * u, e.y + jy - w / 2 - Math.abs(Math.sin(e.walk)) * 1.3 * sc + bb[1] * u, bw * u, bh * u);
+  else if (e.burnTimer > 0 && T.fire && Math.floor(uiT * 9 + e.t) % 4 === 0) A = T.fire[ph];   // 燃烧：周期性整只闪橙
+  enemyBlit(e, T, A, k, ph, jx, jy, 1);
+  // 状态染色（受击闪白的帧不叠）：灼烧 = 常驻的橙红色调 · 腐蚀 = 常驻的绿色调并周期性闪亮 · 紫渣 = 盖住全身的紫色"油漆"
+  if (e.flash > 0 || e.shockSlowTimer > 0) return;
+  if (e.burnTimer > 0 && T.fire && A !== T.fire[ph]) enemyBlit(e, T, T.fire[ph], k, ph, jx, jy, 0.42);
+  if (e.corrosiveTimer > 0 && T.acid) enemyBlit(e, T, T.acid[ph], k, ph, jx, jy, Math.floor(uiT * 7 + e.t) % 3 === 0 ? 0.7 : 0.36);
+  if (e.slagTimer > 0 && T.slag) enemyBlit(e, T, T.slag[ph], k, ph, jx, jy, 0.72);
+}
+/* 殊死一搏：黑白世界里只有敌人保留红色高亮（在褪色后的画面上再叠一层红色剪影） */
+function drawEnemyRed(e) {
+  const T = SPR.types[e.type], n = SPR.n, k = ((Math.round(e.ang / TAU * n) % n) + n) % n;
+  enemyBlit(e, T, T.red[T.phases.length > 1 && Math.sin(e.walk) < 0 ? 1 : 0], k, 0, 0, 0, 0.9);
 }
 
 /* 所有敌人的地面投影合并成一次填充 */
@@ -2195,7 +2572,7 @@ function drawEnemyShadows() {
 function drawBurnGlows() {
   ctx.fillStyle = 'rgba(255,138,30,0.3)'; ctx.beginPath(); let any = false;
   for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i]; if (!e.vis || e.burnT <= 0) continue;
+    const e = enemies[i]; if (!e.vis || e.burnTimer <= 0) continue;
     any = true;
     const r = e.r * 1.6 * (1 + Math.sin(uiT * 18 + e.t) * 0.12);
     ctx.moveTo(e.x + r, e.y + 4); ctx.ellipse(e.x, e.y + 4, r, r * 0.6, 0, 0, TAU);
@@ -2252,6 +2629,10 @@ function drawEnemyOverlays() {
 function smokeSprite(col) {
   return cachedSprite('smk' + col, () => { const s = spriteCtx(13, 2); circ(s.g, 0, 0, 11.5); s.g.fillStyle = col; s.g.fill(); s.g.lineWidth = 2.2; s.g.strokeStyle = '#000'; s.g.stroke(); return s; });
 }
+/* 气泡位图：黑描边的彩色圆 + 白色高光（腐蚀荧光绿 / 紫渣亮紫） */
+function bubbleSprite(col) {
+  return cachedSprite('bub' + col, () => { const s = spriteCtx(6, 2), g = s.g; circ(g, 0, 0, 4.8); g.fillStyle = col; g.fill(); g.lineWidth = 1.8; g.strokeStyle = '#000'; g.stroke(); circ(g, -1.6, -1.6, 1.2); g.fillStyle = '#FFFFFF'; g.fill(); return s; });
+}
 function chunkSprite(col) {
   return cachedSprite('chk' + col, () => { const s = spriteCtx(8.5, 3), g = s.g; g.beginPath(); g.moveTo(-6.5, -4); g.lineTo(7.2, 0); g.lineTo(-2.6, 5.8); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = 1.3; g.strokeStyle = '#000'; g.stroke(); return s; });
 }
@@ -2292,6 +2673,9 @@ function drawParts() {
       case 'smoke':
         blit(smokeSprite(o.col), o.x, o.y, o.size * (1.7 - k * 0.7) / 11.5, Math.min(1, k * 1.8) * 0.9);
         break;
+      case 'acid':   // 酸液 / 紫渣气泡：越飘越大、逐渐变淡
+        blit(bubbleSprite(o.col), o.x, o.y, o.size * (1.2 - k * 0.5) / 6, Math.min(1, k * 2.2));
+        break;
       case 'chunk': {
         const s = o.size * Math.min(1, k * 2 + 0.2) / 7, spr = chunkSprite(o.col);
         ctx.globalAlpha = Math.min(1, k * 2.5);
@@ -2309,12 +2693,12 @@ function drawParts() {
   ctx.globalAlpha = 1;
 }
 
-/* 伤害跳字：普通白色 / 暴击大号黄色 / 持续伤害橙色；弹出放大后上飘淡出（位图缓存，每条只贴图一次） */
+/* 伤害跳字：普通白色 / 暴击大号黄色 / 持续伤害小号橙色 / 紫渣易伤大号紫色；弹出放大后上飘淡出（位图缓存，每条只贴图一次） */
 function drawTexts() {
   for (let i = 0; i < texts.length; i++) {
-    const t = texts[i], k = t.life / t.max, age = t.max - t.life, sc = 1 + (1 - Math.min(1, age / 0.09)) * 0.7, size = t.crit ? 28 : t.small ? 14 : 17;
+    const t = texts[i], k = t.life / t.max, age = t.max - t.life, sc = 1 + (1 - Math.min(1, age / 0.09)) * 0.7, size = t.crit ? 28 : t.slag ? 24 : t.small ? 14 : 17;
     ctx.globalAlpha = k < 0.35 ? k / 0.35 : 1;
-    drawTextSprite(textSprite(t.str, size, t.col, t.crit ? 6 : 4, 0, RES), t.x, t.y, t.rot, sc);
+    drawTextSprite(textSprite(t.str, size, t.col, t.crit || t.slag ? 6 : 4, 0, RES), t.x, t.y, t.rot, sc);
   }
   ctx.globalAlpha = 1;
 }
@@ -2333,12 +2717,13 @@ function drawWords(screenLayer) {
 function drawBooms() {
   ctx.lineJoin = 'round';
   for (let i = 0; i < booms.length; i++) {
-    const b = booms[i], t = clamp(b.t / b.max, 0, 1), r = b.r * easeOut(t);
-    if (b.ring) {   // 震爆脉冲：扩散冲击环
+    const b = booms[i], tt = b.t - (b.delay || 0); if (tt < 0) continue;
+    const t = clamp(tt / b.max, 0, 1), r = b.r * easeOut(t);
+    if (b.ring) {   // 扩散冲击环（震爆脉冲 / 新星 / 卷土重来）：黑描边 + 主色 + 内侧亮色两圈
       ctx.globalAlpha = 1 - t;
       ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TAU); ctx.lineWidth = 26 * (1 - t) + 4; ctx.strokeStyle = '#000'; ctx.stroke();
-      ctx.lineWidth = 16 * (1 - t) + 2; ctx.strokeStyle = '#FFF6A0'; ctx.stroke();
-      ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.94, 0, TAU); ctx.lineWidth = 8 * (1 - t) + 1; ctx.strokeStyle = '#FFD23F'; ctx.stroke();
+      ctx.lineWidth = 16 * (1 - t) + 2; ctx.strokeStyle = b.c1 || '#FFF6A0'; ctx.stroke();
+      ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.9, 0, TAU); ctx.lineWidth = 8 * (1 - t) + 1; ctx.strokeStyle = b.c2 || '#FFD23F'; ctx.stroke();
       continue;
     }
     ctx.globalAlpha = 1 - t * t;
@@ -2358,7 +2743,7 @@ function drawBooms() {
 function drawBolts() {
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (let i = 0; i < bolts.length; i++) {
-    const b = bolts[i], s = b.seg, a = Math.min(1, b.life / b.max * 2);
+    const b = bolts[i], s = b.seg, a = Math.min(1, b.life / b.max * 2) * (Math.floor(uiT * 60) % 2 ? 1 : 0.62);   // 高频闪烁
     for (let pass = 0; pass < 4; pass++) {   // 青色辉光 → 黑描边 → 青色电弧 → 白色亮芯
       ctx.globalAlpha = pass === 0 ? a * 0.34 : a;
       ctx.lineWidth = pass === 0 ? 18 : pass === 1 ? 7 : pass === 2 ? 3.8 : 1.7;
@@ -2369,6 +2754,29 @@ function drawBolts() {
     }
   }
   ctx.globalAlpha = 1;
+}
+/* 雅各布斯弹射的金色弹道：起点 → 折角 → 落点，粗黑描边 + 金色 + 白色亮芯 */
+function drawTracers() {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 0; i < tracers.length; i++) {
+    const t = tracers[i], a = Math.min(1, t.life / t.max * 2.2);
+    for (let pass = 0; pass < 3; pass++) {
+      ctx.globalAlpha = a; ctx.lineWidth = pass === 0 ? 8 : pass === 1 ? 4.5 : 1.6; ctx.strokeStyle = pass === 0 ? '#000' : pass === 1 ? '#FFD23F' : '#FFFFFF';
+      ctx.beginPath(); ctx.moveTo(t.ax, t.ay); ctx.lineTo(t.mx, t.my); ctx.lineTo(t.bx, t.by); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+/* 泰迪尔掷出的枪：边飞边旋转，身后拖一道运动线 */
+function drawThrows() {
+  for (let i = 0; i < throws.length; i++) {
+    const t = throws[i], dx = t.tx - t.x, dy = t.ty - t.y;
+    ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(Math.atan2(dy, dx));
+    ctx.lineCap = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(-52, 0); ctx.stroke();
+    ctx.lineWidth = 3.5; ctx.strokeStyle = '#F4E9D3'; ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.rot); blit(gunIconSprite(t.w, '#231A12'), 0, 0, 1.5); ctx.restore();
+  }
 }
 /* 电击命中点的电光星：迅速放大并淡出 */
 function drawZaps() {
@@ -2383,12 +2791,12 @@ function drawZaps() {
 /* 冲刺残影：玩家剪影 × 12 个朝向 × 2 种颜色，启动时预生成 */
 const GHOST_SPR = [];
 function buildGhostSprites() {
-  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F'].map(col => [0, 1, 2].map(w => { const sp = spriteCtx(42, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col, w); return sp; }));   // 残影跟随手持武器：12 朝向 × 2 色 × 3 把枪（半径 42：连同枪口一起画全）
+  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F', '#FF3B2E'].map(col => [0, 1, 2].map(w => { const sp = spriteCtx(42, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col, w); return sp; }));   // 残影跟随手持武器：12 朝向 × 3 色（冲刺青 / 黄，肾上腺素红）× 3 把枪（半径 42：连同枪口一起画全）
 }
 function drawGhosts() {
   for (let i = 0; i < ghosts.length; i++) {
     const g = ghosts[i], k = ((Math.round(g.aim / TAU * 12) % 12) + 12) % 12;
-    blit(GHOST_SPR[k][i % 2][g.w || 0], g.x, g.y, 1, (g.life / g.max) * 0.5);
+    blit(GHOST_SPR[k][g.c || i % 2][g.w || 0], g.x, g.y, 1, (g.life / g.max) * (g.c === 2 ? 0.42 : 0.5));
   }
 }
 /* ============================================================
@@ -2403,13 +2811,13 @@ function drawIcon(id, cx, cy, s, col, g) {
     g.strokeStyle = '#000'; g.lineWidth = w + 0.18; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
     g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
   };
-  const dot = (x, y, r) => { g.fillStyle = '#000'; circ(ctx, x, y, r + 0.09); g.fill(); g.fillStyle = col; circ(ctx, x, y, r); g.fill(); };
+  const dot = (x, y, r) => { g.fillStyle = '#000'; circ(g, x, y, r + 0.09); g.fill(); g.fillStyle = col; circ(g, x, y, r); g.fill(); };
   const poly = (pts, fill, ol) => {
     g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath();
     if (fill) { g.fillStyle = fill; g.fill(); }
     if (ol) { g.lineWidth = ol; g.strokeStyle = '#000'; g.stroke(); }
   };
-  const ring = (x, y, r, w) => { g.strokeStyle = '#000'; g.lineWidth = w + 0.18; circ(ctx, x, y, r); g.stroke(); g.strokeStyle = col; g.lineWidth = w; circ(ctx, x, y, r); g.stroke(); };
+  const ring = (x, y, r, w) => { g.strokeStyle = '#000'; g.lineWidth = w + 0.18; circ(g, x, y, r); g.stroke(); g.strokeStyle = col; g.lineWidth = w; circ(g, x, y, r); g.stroke(); };
   switch (id) {
     case 'shotgun':
       for (const a of [-0.42, 0, 0.42]) { line(-0.65, 0.45, -0.65 + Math.cos(a) * 1.05, 0.45 + Math.sin(a) * 1.05, 0.15); dot(-0.65 + Math.cos(a) * 1.28, 0.45 + Math.sin(a) * 1.28, 0.14); }
@@ -2443,7 +2851,7 @@ function drawIcon(id, cx, cy, s, col, g) {
       g.lineCap = 'butt';
       u(); g.strokeStyle = '#000'; g.lineWidth = 0.5; g.stroke(); u(); g.strokeStyle = col; g.lineWidth = 0.3; g.stroke();
       g.lineWidth = 0.12; g.fillStyle = '#F4F1E8'; g.strokeStyle = '#000';
-      rr(ctx, -0.6, -0.85, 0.3, 0.24, 0.05); g.fill(); g.stroke(); rr(ctx, 0.3, -0.85, 0.3, 0.24, 0.05); g.fill(); g.stroke();
+      rr(g, -0.6, -0.85, 0.3, 0.24, 0.05); g.fill(); g.stroke(); rr(g, 0.3, -0.85, 0.3, 0.24, 0.05); g.fill(); g.stroke();
       break;
     }
     case 'crit':
@@ -2456,9 +2864,9 @@ function drawIcon(id, cx, cy, s, col, g) {
       break;
     }
     case 'maxhp': case 'heal':
-      rr(ctx, -0.78, -0.78, 1.56, 1.56, 0.28); g.fillStyle = '#F4F1E8'; g.fill(); g.lineWidth = 0.15; g.strokeStyle = '#000'; g.stroke();
-      rr(ctx, -0.17, -0.52, 0.34, 1.04, 0.06); g.fillStyle = '#E8452C'; g.fill(); g.lineWidth = 0.09; g.stroke();
-      rr(ctx, -0.52, -0.17, 1.04, 0.34, 0.06); g.fillStyle = '#E8452C'; g.fill(); g.stroke();
+      rr(g, -0.78, -0.78, 1.56, 1.56, 0.28); g.fillStyle = '#F4F1E8'; g.fill(); g.lineWidth = 0.15; g.strokeStyle = '#000'; g.stroke();
+      rr(g, -0.17, -0.52, 0.34, 1.04, 0.06); g.fillStyle = '#E8452C'; g.fill(); g.lineWidth = 0.09; g.stroke();
+      rr(g, -0.52, -0.17, 1.04, 0.34, 0.06); g.fillStyle = '#E8452C'; g.fill(); g.stroke();
       break;
     case 'dashcd':
       line(-0.95, -0.5, 0, -0.5, 0.16); line(-0.8, 0.05, -0.1, 0.05, 0.16); line(-0.95, 0.6, 0.05, 0.6, 0.16); dot(0.42, 0.05, 0.36);
@@ -2470,13 +2878,53 @@ function drawIcon(id, cx, cy, s, col, g) {
     case 'frenzy':
       for (const ox of [-0.45, 0.45]) { poly([[ox - 0.26, -0.25], [ox, -0.9], [ox + 0.26, -0.25], [ox + 0.26, 0.6], [ox - 0.26, 0.6]], col, 0.13); g.fillStyle = '#111'; g.fillRect(ox - 0.26, 0.3, 0.52, 0.12); }
       break;
+    case 'jakobs':   // 弹射：一道折线 + 落点的火花
+      line(-0.9, 0.6, -0.15, -0.25, 0.16); line(-0.15, -0.25, 0.35, 0.1, 0.16); line(0.35, 0.1, 0.86, -0.5, 0.16); dot(0.88, -0.54, 0.2);
+      break;
+    case 'torgue':   // 火箭：弹体 + 弹头 + 尾翼 + 尾焰
+      poly([[-0.1, -0.24], [0.42, -0.24], [0.82, 0], [0.42, 0.24], [-0.1, 0.24]], '#F4F1E8', 0.13);
+      poly([[0.42, -0.24], [0.82, 0], [0.42, 0.24]], col, 0.13);
+      poly([[-0.1, -0.24], [-0.38, -0.5], [-0.38, -0.24]], col, 0.12); poly([[-0.1, 0.24], [-0.38, 0.5], [-0.38, 0.24]], col, 0.12);
+      poly([[-0.38, -0.14], [-0.38, 0.14], [-0.8, 0]], '#FF8A1E', 0.12);
+      break;
+    case 'hyperion':   // 锁定：旋转的六边形全息线框 + 准星
+      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.26, b = (i + 1) / 6 * TAU + 0.26; line(Math.cos(a) * 0.78, Math.sin(a) * 0.78, Math.cos(b) * 0.78, Math.sin(b) * 0.78, 0.13); }
+      line(-0.98, 0, -0.3, 0, 0.13); line(0.3, 0, 0.98, 0, 0.13); line(0, -0.98, 0, -0.3, 0.13); line(0, 0.3, 0, 0.98, 0.13); dot(0, 0, 0.15);
+      break;
+    case 'tediore':   // 掷枪：一把枪 + 三道运动线
+      line(-0.95, -0.55, -0.5, -0.25, 0.13); line(-0.98, -0.12, -0.6, 0.1, 0.13); line(-0.85, 0.35, -0.45, 0.46, 0.13);
+      poly([[-0.25, -0.2], [0.75, -0.2], [0.9, -0.02], [0.75, 0.16], [0.1, 0.16], [0.02, 0.55], [-0.2, 0.55], [-0.12, 0.16], [-0.25, 0.16]], col, 0.13);
+      break;
+    case 'gunzerker':   // 双持：两把枪 + 中间的火焰
+      for (const ox of [-0.52, 0.52]) poly([[ox - 0.2, -0.85], [ox + 0.2, -0.85], [ox + 0.2, 0.5], [ox - 0.2, 0.5]], col, 0.12);
+      poly([[0, -0.35], [0.3, 0.1], [0.18, 0.6], [0, 0.9], [-0.18, 0.6], [-0.3, 0.1]], '#FF8A1E', 0.12); dot(0, 0.62, 0.1);
+      break;
+    case 'corrosive':   // 酸液：一滴腐蚀液
+      poly([[0, -0.9], [0.5, 0.05], [0.42, 0.55], [0, 0.85], [-0.42, 0.55], [-0.5, 0.05]], col, 0.13);
+      poly([[0.02, -0.3], [0.24, 0.1], [0.2, 0.4], [0, 0.6], [-0.1, 0.4], [-0.12, 0.1]], '#E9FFC8', 0);
+      break;
+    case 'slag':   // 紫渣：飞溅的油漆
+      poly([[0, -0.88], [0.5, -0.1], [0.62, 0.4], [0.2, 0.8], [-0.3, 0.78], [-0.62, 0.3], [-0.5, -0.2]], col, 0.13);
+      dot(-0.72, -0.42, 0.14); dot(0.72, -0.5, 0.1); dot(0.8, 0.05, 0.08);
+      break;
+    case 'nova':   // 新星：中心 + 两圈扩散环
+      dot(0, 0, 0.26); ring(0, 0, 0.5, 0.12); ring(0, 0, 0.82, 0.12);
+      break;
+    case 'secondwind':   // 卷土重来：冲出地面的向上箭头
+      poly([[0, -0.92], [0.55, -0.2], [0.25, -0.2], [0.25, 0.5], [-0.25, 0.5], [-0.25, -0.2], [-0.55, -0.2]], col, 0.13);
+      line(-0.8, 0.74, 0.8, 0.74, 0.14);
+      break;
+    case 'bloodlust':   // 肾上腺素：带闪电的晶体
+      poly([[0, -0.9], [0.55, -0.2], [0.3, 0.7], [-0.3, 0.7], [-0.55, -0.2]], col, 0.13);
+      poly([[0.05, -0.55], [-0.22, 0], [0.02, 0], [-0.1, 0.45], [0.26, -0.08], [0.04, -0.08]], '#FFFFFF', 0);
+      break;
     case 'vault':
       poly([[-0.9, -0.6], [0, -0.05], [0.9, -0.6], [0.55, 0.7], [0, 0.22], [-0.55, 0.7]], col, 0.16);
       break;
     case 'skull':
-      circ(ctx, 0, -0.15, 0.62); g.fillStyle = '#F4F1E8'; g.fill(); g.lineWidth = 0.16; g.strokeStyle = '#000'; g.stroke();
-      rr(ctx, -0.38, 0.35, 0.76, 0.42, 0.14); g.fillStyle = '#F4F1E8'; g.fill(); g.stroke();
-      g.fillStyle = '#111'; circ(ctx, -0.25, -0.2, 0.19); g.fill(); circ(ctx, 0.25, -0.2, 0.19); g.fill();
+      circ(g, 0, -0.15, 0.62); g.fillStyle = '#F4F1E8'; g.fill(); g.lineWidth = 0.16; g.strokeStyle = '#000'; g.stroke();
+      rr(g, -0.38, 0.35, 0.76, 0.42, 0.14); g.fillStyle = '#F4F1E8'; g.fill(); g.stroke();
+      g.fillStyle = '#111'; circ(g, -0.25, -0.2, 0.19); g.fill(); circ(g, 0.25, -0.2, 0.19); g.fill();
       g.fillRect(-0.2, 0.42, 0.07, 0.26); g.fillRect(0.13, 0.42, 0.07, 0.26); g.fillRect(-0.035, 0.42, 0.07, 0.26);
       break;
   }
@@ -2554,12 +3002,12 @@ function keyRow(items, cx, y) {
 /* HUD 位图缓存：升级图标格 / 静音按钮 / 小图标只在内容变化时重绘一次，平时每帧只贴图 */
 const UI_R = () => clamp(DPR, 1, 2.5);
 function upgradeBoxSprite(key, u) {
-  const maxed = u.val >= u.cap - 1e-9, weapon = u.type === 'weapon', label = maxed ? 'MAX' : String(u.lvl);
-  return cachedSprite('up|' + key + '|' + u.lvl + '|' + maxed + '|' + weapon, () => {
+  const maxed = maxedOut(u), col = TIER[u.tier].col, label = maxed ? 'MAX' : String(u.lvl);
+  return cachedSprite('up|' + key + '|' + u.lvl + '|' + maxed + '|' + u.tier, () => {
     const s = spriteCtx(21, UI_R()), g = s.g;
     g.fillStyle = '#231A12'; rr(g, -17, -17, 34, 34, 6); g.fill(); g.lineWidth = 3; g.strokeStyle = '#000'; g.stroke();
-    g.lineWidth = 2; g.strokeStyle = weapon ? '#FF9A1F' : '#4DB5FF'; rr(g, -14.5, -14.5, 29, 29, 4); g.stroke();
-    drawIcon(key, 0, -2, 10, weapon ? '#FFD23F' : '#B5F4FF', g);
+    g.lineWidth = 2; g.strokeStyle = col; rr(g, -14.5, -14.5, 29, 29, 4); g.stroke();
+    drawIcon(key, 0, -2, 10, col, g);
     g.font = '900 ' + (maxed ? 9 : 12) + 'px ' + FONT_IMPACT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
     g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(label, maxed ? 0 : 12, 12); g.fillStyle = maxed ? '#FFD23F' : '#fff'; g.fillText(label, maxed ? 0 : 12, 12);
     return s;
@@ -2640,6 +3088,22 @@ function drawHUD(showTop) {
   // "HP" 标签：贴在血条左端的斜切贴纸
   pgram(ctx, bx - 12, ay + 4, 46, 27, 9); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
   txt('HP', bx + 11, ay + 18.5, 20, '#000', 'center', 0, FONT_IMPACT);
+  // 词条状态条：第一行 肾上腺素（狂热层数）· 双持狂暴（击杀充能 / 剩余时间）；第二行 新星与卷土重来（文字）
+  let tx = bx;
+  if (UPS.bloodlust.lvl) {
+    const full = p.blood >= 20;
+    bar(tx, ay + 78, 70, 12, p.blood / 20, full ? '#FFD23F' : '#E8452C', full ? '#FFF2A8' : '#FF8A6B');
+    txt('狂热 ' + p.blood + '/20', tx + 78, ay + 85, 13, full ? '#FFD23F' : '#FF8A6B', 'left', 4, FONT_IMPACT); tx += 150;
+  }
+  if (UPS.gunzerker.lvl) {
+    const on = p.gunzT > 0, k = on ? p.gunzT / (5 + UPS.gunzerker.lvl - 1) : Math.min(1, p.gzKills / 30);
+    bar(tx, ay + 78, 70, 12, k, on ? '#FFE23F' : '#FF8C00', '#FFF2A8');
+    txt(on ? '双持 ' + p.gunzT.toFixed(1) + 's' : '双持 ' + p.gzKills + '/30', tx + 78, ay + 85, 13, on ? '#FFE23F' : '#FFB25A', 'left', 4, FONT_IMPACT); tx += 150;
+  }
+  const st = [];
+  if (UPS.nova.lvl) st.push(p.novaCd > 0 ? '新星冷却 ' + Math.ceil(p.novaCd) + 's' : '新星就绪');
+  if (UPS.secondwind.lvl) st.push(p.swUsed ? '卷土重来 已用' : '卷土重来 待命');
+  if (st.length) txt(st.join('   ·   '), bx + 18, ay + 110, 12, '#CDB89A', 'left', 3);
   // 顶部中央：等级 / 经验条 / 计时（升级界面时让位给标题）
   if (showTop) {
     const xw = clamp(W - 660, 150, 520), xx = W / 2 - xw / 2, xy = 18;
@@ -2655,7 +3119,7 @@ function drawHUD(showTop) {
   // 左下（自下而上）：武器槽（1 / 2 / 3 或滚轮切换）→ 当前武器名称 + 元素概率 → 弹药 → 已获得升级
   const wi = p.weapon, rl = p.rel[wi] > 0, by = H - 22, et = elemText(gun);
   for (let i = 0; i < 3; i++) blit(weaponSlotSprite(i, i === wi), 56 + i * 78, by - 22 - (i === wi ? 6 : 0));
-  txt(WEAPONS[wi].name + (et ? '  ·  ' + et : '') + (p.frenzyT > 0 ? '  [狂暴!]' : ''), 46, by - 58, 14, '#F4E9D3', 'left', 4);   // x 从 46 起：让开武器槽左上角的按键角标
+  txt(WEAPONS[wi].name + (et ? '  ·  ' + et : '') + (p.frenzyT > 0 ? '  [狂暴!]' : '') + (p.gunzT > 0 ? '  [双持狂暴!]' : ''), 46, by - 58, 14, '#F4E9D3', 'left', 4);   // x 从 46 起：让开武器槽左上角的按键角标
   const frac = rl ? 1 - p.rel[wi] / gun.reload : p.ammo[wi] / p.mmax[wi];
   bar(20, by - 80, 232, 14, frac, rl ? '#F4F1E8' : '#FFD23F', rl ? '#5FF3FF' : '#FFF2A8');
   txt(rl ? '装填中…' : p.ammo[wi] + ' / ' + p.mmax[wi], 260, by - 73, 18, rl ? '#5FF3FF' : '#F4E9D3', 'left', 4, FONT_IMPACT);
@@ -2685,8 +3149,14 @@ function drawHUD(showTop) {
     txt('WASD 移动 · 鼠标瞄准 · 1 / 2 / 3 或滚轮 换枪 · 空格 / 右键 冲刺无敌 · R 装填', W / 2, H - 172, 17, '#F4E9D3', 'center', 5);
     ctx.globalAlpha = 1;
   }
+  if (p.swT > 0 && state === ST.PLAY) {   // 殊死一搏：屏幕中央上方的倒计时条
+    const yy = Math.max(250, H * 0.31);   // 放在上中部：避开头顶的 FIGHT FOR YOUR LIFE! 和屏幕中央的角色
+    comicText('殊死一搏！', W / 2, yy - 30, 40, '#FFFFFF', 9, 5, -0.02);
+    bar(W / 2 - 150, yy, 300, 22, p.swT / SW_TIME, '#E8452C', '#FF8A6B');
+    txt('击杀任意敌人即可卷土重来', W / 2, yy + 40, 17, '#FFFFFF', 'center', 5);
+  }
   // 波次 / 警告横幅（升级界面不显示）
-  if (banner && state === ST.PLAY) {
+  if (banner && state === ST.PLAY && p.swT <= 0) {
     const k = banner.life / banner.max, tin = clamp((banner.max - banner.life) / 0.28, 0, 1), yy = Math.max(170, H * 0.25);
     ctx.save();
     ctx.globalAlpha = Math.min(1, k / 0.22);
@@ -2772,14 +3242,32 @@ function wrapText(s, n) {
   return out;
 }
 
+/* 英文 / 中英混排折行：按空格断词，每行不超过 n 个字符 */
+function wrapEn(s, n) {
+  const out = []; let cur = '';
+  for (const w of s.split(' ')) { if (cur && (cur + ' ' + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+  if (cur) out.push(cur);
+  return out;
+}
+/* 两个 #RRGGBB 颜色按 t 插值 */
+function mixCol(a, b, t) {
+  const c = (s, i) => parseInt(s.slice(i, i + 2), 16), r = [];
+  for (let i = 1; i <= 5; i += 2) r.push(Math.round(c(a, i) + (c(b, i) - c(a, i)) * t));
+  return 'rgb(' + r.join(',') + ')';
+}
+
+/* 升级卡：粗黑外框 + 按词条分级着色的内框与绶带；右上角是英文厂牌 / 元素角标；底部深色面板逐条列出数值。
+   已拥有的卡在数值面板里显示"当前 → 下一级" */
 function drawCard(c, i, cx, cy, s) {
-  const cw = 236, ch = 340;
+  const u = UPS[c.key], rows = (c.extra ? EXTRA[c.key] : u).lines(c.extra ? 1 : c.lvl + 1), T = TIER[c.tier];
+  const cw = 236, ch = 348 + rows.length * 22, split = c.name.indexOf('：') >= 0, np = c.name.split('：');
+  const lvY = split ? 218 : 200, dy0 = split ? 256 : 238, py = 290;   // 纵向：名称 172 · 副标题 194 · 等级 lvY · 进度条 lvY+16（含描边和投影占到 lvY+28）· 描述 dy0 起 · 数值面板 290
   const intro = clamp((levelT - i * 0.08) / 0.32, 0, 1), e = easeOutBack(intro);
   const hv = c.hover, sel = picking && picking.i === i ? clamp(picking.t / 0.22, 0, 1) : 0;
   const fade = picking && picking.i !== i ? 1 - clamp(picking.t / 0.18, 0, 1) : 1;
   const sc = s * (0.6 + 0.4 * e) * (1 + hv * 0.06 + sel * 0.1);
   const y = cy + (1 - e) * 260 - hv * 14 + Math.sin(uiT * 2 + i * 2) * 3 * (1 - hv) * (1 - sel);
-  const A = intro * fade, R = RARITY[c.rarity];
+  const A = intro * fade;
   c.x = cx - cw / 2 * sc; c.y = y - ch / 2 * sc; c.w = cw * sc; c.h = ch * sc;   // 记录屏幕矩形供点击检测
   if (A <= 0.01) return;
   ctx.save();
@@ -2791,33 +3279,62 @@ function drawCard(c, i, cx, cy, s) {
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; rr(ctx, x + 9 + hv * 5, y0 + 11 + hv * 9, cw, ch, 14); ctx.fill();
   ctx.fillStyle = '#F4E9D3'; rr(ctx, x, y0, cw, ch, 14); ctx.fill();
   ctx.save(); rr(ctx, x + 2.5, y0 + 2.5, cw - 5, ch - 5, 12); ctx.clip();
-  ctx.globalAlpha = A * 0.55; ctx.fillStyle = dotPattern; ctx.fillRect(x, y0 + 196, cw, ch - 196);   // 半调网点
-  if (c.rarity === 3) {   // 传说：流动高光
-    ctx.globalAlpha = A * 0.28; ctx.fillStyle = '#FFFFFF';
-    for (let k = 0; k < 3; k++) { const sx = ((uiT * 160 + k * 110) % 330) - 165; ctx.save(); ctx.translate(sx, 0); ctx.rotate(0.5); ctx.fillRect(-12, -260, 24, 520); ctx.restore(); }
+  ctx.globalAlpha = A * 0.55; ctx.fillStyle = dotPattern; ctx.fillRect(x, y0 + py, cw, ch - py);   // 半调网点（数值区）
+  if (c.tier === 2) {   // 传奇：流动高光
+    ctx.globalAlpha = A * 0.3; ctx.fillStyle = '#FFFFFF';
+    for (let k = 0; k < 3; k++) { const sx = ((uiT * 160 + k * 110) % 330) - 165; ctx.save(); ctx.translate(sx, 0); ctx.rotate(0.5); ctx.fillRect(-12, -300, 24, 600); ctx.restore(); }
   }
   ctx.restore();
+  // 粗黑外框（5px）+ 按词条分级着色的内框（3px）
   ctx.lineWidth = 5; ctx.strokeStyle = '#000'; rr(ctx, x, y0, cw, ch, 14); ctx.stroke();
-  ctx.lineWidth = 3; ctx.strokeStyle = hv > 0.5 ? '#FFD23F' : R.col; rr(ctx, x + 6, y0 + 6, cw - 12, ch - 12, 10); ctx.stroke();
-  // 稀有度绶带
-  ctx.save(); rr(ctx, x + 6, y0 + 6, cw - 12, 54, 9); ctx.clip(); ctx.fillStyle = R.col; ctx.fillRect(x + 6, y0 + 6, cw - 12, 40); ctx.restore();
-  ctx.fillStyle = '#000'; ctx.fillRect(x + 6, y0 + 45, cw - 12, 3);
-  txt(R.name, 0, y0 + 26, 21, c.rarity ? '#FFFFFF' : '#000000', 'center', c.rarity ? 4 : 0);
-  // 图标
-  ctx.fillStyle = '#231A12'; rr(ctx, -48, y0 + 62, 96, 96, 10); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
-  drawIcon(c.key, 0, y0 + 110, 34, R.col);
-  ctx.fillStyle = c.type === 'weapon' ? '#E8452C' : '#3AA0FF'; rr(ctx, x + 22, y0 + 140, 54, 24, 6); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
-  txt(c.type === 'weapon' ? '武器' : '被动', x + 49, y0 + 152, 14, '#fff', 'center', 0);
-  // 标题 / 等级 / 进度
-  txt(c.name, 0, y0 + 190, 27, '#000', 'center', 0);
-  if (c.extra) txt('一次性补给', 0, y0 + 220, 17, '#B3261E', 'center', 0);
-  else if (c.isNew) txt('新获得！', 0, y0 + 220, 17, '#B3261E', 'center', 0);
-  else txt('Lv ' + c.lvl + '   \u2192   ' + (c.lvl + 1), 0, y0 + 220, 20, '#3A2E20', 'center', 0, FONT_IMPACT);
-  if (!c.extra) bar(-60, y0 + 240, 120, 9, c.fill, R.col);
-  // 描述
-  const lines = wrapText(c.desc, 11);
-  for (let k = 0; k < lines.length && k < 2; k++) txt(lines[k], 0, y0 + (c.extra ? 262 : 274) + k * 22, 15, '#3A2E20', 'center', 0);
-  txt('点击选择  /  按 ' + (i + 1), 0, y0 + 322, 13, '#7A5A2A', 'center', 0);
+  ctx.lineWidth = 3; ctx.strokeStyle = hv > 0.5 ? '#FFD23F' : T.col; rr(ctx, x + 6, y0 + 6, cw - 12, ch - 12, 10); ctx.stroke();
+  // 分级绶带
+  ctx.save(); rr(ctx, x + 6, y0 + 6, cw - 12, 50, 9); ctx.clip(); ctx.fillStyle = T.col; ctx.fillRect(x + 6, y0 + 6, cw - 12, 38); ctx.restore();
+  ctx.fillStyle = '#000'; ctx.fillRect(x + 6, y0 + 43, cw - 12, 3);
+  txt(T.name, c.tag ? -34 : 0, y0 + 25, 20, c.tier === 2 ? '#000000' : '#FFFFFF', 'center', c.tier === 2 ? 0 : 4);
+  // 右上角：英文厂牌 / 元素角标
+  if (c.tag) {
+    ctx.save(); ctx.translate(x + cw - 2, y0 + 2); ctx.rotate(0.07);
+    ctx.font = 'italic 900 15px ' + FONT_IMPACT;
+    const str = '[' + c.tag + ']', tw = Math.ceil(ctx.measureText(str).width) + 24;
+    pgram(ctx, -tw, -8, tw, 26, 8); ctx.fillStyle = '#231A12'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+    pgram(ctx, -tw + 3, -5, tw - 6, 20, 6.5); ctx.lineWidth = 1.5; ctx.strokeStyle = T.col; ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = '#000'; ctx.strokeText(str, -tw / 2, 5.5);
+    ctx.fillStyle = T.col; ctx.fillText(str, -tw / 2, 5.5);
+    ctx.restore();
+  }
+  // 图标 + 类型 + 英文名
+  ctx.fillStyle = '#231A12'; rr(ctx, x + 16, y0 + 62, 92, 92, 10); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
+  drawIcon(c.key, x + 62, y0 + 108, 32, T.col);
+  const tx = x + 122;
+  ctx.fillStyle = T.col; rr(ctx, tx, y0 + 68, 58, 24, 6); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+  txt(TYPE_NAME[c.type] || '被动', tx + 29, y0 + 80.5, 14, c.tier === 2 ? '#000' : '#fff', 'center', 0);
+  if (c.sub) { const sl = wrapEn(c.sub, 13); for (let k = 0; k < sl.length && k < 3; k++) txt(sl[k], tx, y0 + 108 + k * 18, 14, '#7A5A2A', 'left', 0, FONT_IMPACT); }
+  // 名称 / 副标题 / 等级 / 进度
+  txt(np[0], 0, y0 + 172, 26, '#000', 'center', 0);
+  if (split) txt(np[1], 0, y0 + 194, 19, '#3A2E20', 'center', 0);
+  if (c.extra) txt('一次性补给', 0, y0 + lvY, 17, '#B3261E', 'center', 0);
+  else if (c.isNew) txt('新获得！', 0, y0 + lvY, 17, '#B3261E', 'center', 0);
+  else txt('Lv ' + c.lvl + '   \u2192   ' + (c.lvl + 1), 0, y0 + lvY, 17, '#3A2E20', 'center', 0, FONT_IMPACT);
+  if (!c.extra) bar(-60, y0 + lvY + 16, 120, 8, c.fill, T.col);   // 进度条在等级文字下方，不压字
+  // 描述（最多两行）
+  const lines = wrapText(c.desc, 14);
+  for (let k = 0; k < lines.length && k < 2; k++) txt(lines[k], 0, y0 + dy0 + k * 19, 14, '#3A2E20', 'center', 0);
+  // 底部数值面板
+  ctx.fillStyle = '#231A12'; rr(ctx, x + 16, y0 + py, cw - 32, rows.length * 22 + 14, 8); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+  ctx.save(); rr(ctx, x + 16, y0 + py, cw - 32, rows.length * 22 + 14, 8); ctx.clip(); ctx.lineWidth = 2; ctx.strokeStyle = T.col; rr(ctx, x + 19, y0 + py + 3, cw - 38, rows.length * 22 + 8, 6); ctx.stroke(); ctx.restore();
+  const cur = !c.extra && c.lvl > 0 ? u.lines(c.lvl) : null;
+  rows.forEach((r, k) => {
+    const yy = y0 + py + 18 + k * 22, prev = cur && cur[k] && cur[k][1] !== r[1] ? cur[k][1] : null;
+    ctx.font = '900 14px ' + FONT_UI; const room = cw - 56 - ctx.measureText(r[0]).width - 10;   // 数值列还能占的宽度
+    let val = prev ? prev + ' \u2192 ' + r[1] : r[1], fs = 15;
+    const fits = v => { ctx.font = '900 ' + fs + 'px ' + FONT_IMPACT; return ctx.measureText(v).width <= room; };
+    if (prev && !fits(val)) val = r[1];                 // "当前 → 下一级"放不下就只显示下一级
+    while (!fits(val) && fs > 11) fs--;
+    txt(r[0], x + 28, yy, 14, '#CDB89A', 'left', 0);
+    txt(val, x + cw - 28, yy, fs, T.col, 'right', 0, FONT_IMPACT);
+  });
+  txt('点击选择  /  按 ' + (i + 1), 0, y0 + ch - 16, 13, '#7A5A2A', 'center', 0);
   // 按键徽章
   circ(ctx, x - 2, y0 - 2, 17); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
   txt(String(i + 1), x - 2, y0 + 1, 20, '#000', 'center', 0, FONT_IMPACT);
@@ -2834,12 +3351,12 @@ function drawLevelUp() {
   comicText('升 级 ！', 0, 0, 56, '#FFD23F', 11, 6);
   ctx.restore();
   txt('选择一张卡  ·  当前等级 ' + player.level + (pendingLevels > 1 ? '  ·  还有 ' + (pendingLevels - 1) + ' 次升级' : ''), W / 2, 132, 19, '#F4E9D3', 'center', 5);
-  const cw = 236, gap = 30, total = cards.length * cw + (cards.length - 1) * gap;
-  const s = clamp((H - 340) / 340, 0.68, 1) * clamp((W - 40) / total, 0.6, 1);
-  const x0 = W / 2 - total * s / 2, cy = H / 2 + 34;
+  const cw = 236, gap = 30, ch = 412, total = cards.length * cw + (cards.length - 1) * gap;
+  const s = clamp((H - 380) / ch, 0.62, 1) * clamp((W - 40) / total, 0.6, 1);
+  const x0 = W / 2 - total * s / 2, cy = H / 2 + 26;
   for (let i = 0; i < cards.length; i++) drawCard(cards[i], i, x0 + (cw / 2 + i * (cw + gap)) * s, cy, s);
   // 跳过按钮
-  const sy = cy + 170 * s + 48;
+  const sy = cy + 206 * s + 46;
   uiRects.skip = { x: W / 2 - 150, y: sy - 22, w: 300, h: 44 };
   const on = skipHover > 0.5 || (picking && picking.i === 3);
   if (skipHover > 0.5) uiHover = true;
@@ -2866,7 +3383,7 @@ function drawPause() {
 function drawOver() {
   const k = clamp(overT / 0.5, 0, 1);
   ctx.fillStyle = 'rgba(30,6,4,' + (0.8 * k).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
-  const ls = clamp((H - 250) / 460, 0.62, 1), ty = H * 0.13;
+  const ls = clamp((H - 330) / 500, 0.6, 1), ty = H * 0.13, cardH = 410;
   ctx.save(); ctx.globalAlpha = k; ctx.translate(W / 2, ty); ctx.rotate(-0.03);
   const sc = easeOutBack(k); ctx.scale(sc, sc);
   comicText('GAME OVER', 0, 0, Math.min(108, W / 9), '#E8452C', 12, 8);
@@ -2876,8 +3393,8 @@ function drawOver() {
   // 战绩卡
   const cy = ty + 100 * ls + 148 * ls, sw = Math.min(440, (W - 40) / ls), hw = sw / 2;
   ctx.translate(W / 2, cy); ctx.rotate(0.012); ctx.scale(ls, ls);
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'; rr(ctx, -hw + 8, -138, sw, 296, 14); ctx.fill();
-  ctx.fillStyle = '#F4E9D3'; rr(ctx, -hw, -148, sw, 296, 14); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; rr(ctx, -hw + 8, -138, sw, cardH, 14); ctx.fill();
+  ctx.fillStyle = '#F4E9D3'; rr(ctx, -hw, -148, sw, cardH, 14); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke();
   txt('战斗统计', -hw + 24, -148 + 34, 26, '#000', 'left', 0);
   ctx.fillStyle = '#000'; ctx.fillRect(-hw + 20, -148 + 56, sw - 40, 3);
   const rows = [['存活时间', fmtTime(gameTime)], ['击杀数', fmtNum(stats.kills)], ['达到等级', 'LV ' + player.level], ['造成伤害', fmtNum(stats.damage)],
@@ -2888,9 +3405,21 @@ function drawOver() {
     txt(r[1], hw - 28, yy, 23, '#B3261E', 'right', 0, FONT_IMPACT);
     if (i < rows.length - 1) { ctx.fillStyle = 'rgba(60,40,20,0.18)'; ctx.fillRect(-hw + 24, yy + 14.5, sw - 48, 1.5); }
   });
+  // 本局最致命词条 / 元素伤害占比：累计造成伤害最高的 3 个来源
+  ctx.fillStyle = '#000'; ctx.fillRect(-hw + 20, -148 + 278, sw - 40, 3);
+  txt('最致命词条 / 元素伤害占比', -hw + 24, -148 + 300, 19, '#000', 'left', 0);
+  const src = Object.keys(stats.dmgBy).map(t => ({ t, v: stats.dmgBy[t] })).sort((a, b) => b.v - a.v).slice(0, 3), top = src.length ? src[0].v : 1;
+  if (!src.length) txt('本局没有造成任何伤害', -hw + 28, -148 + 336, 17, '#7A5A2A', 'left', 0);
+  src.forEach((q, i) => {
+    const yy = -148 + 326 + i * 26, d = DMG_SRC[q.t] || [q.t, '#FFFFFF'];
+    txt(String(i + 1), -hw + 30, yy, 19, i === 0 ? '#B3261E' : '#3A2E20', 'left', 0, FONT_IMPACT);
+    txt(d[0], -hw + 46, yy, 16, i === 0 ? '#B3261E' : '#3A2E20', 'left', 0);
+    bar(-hw + 170, yy - 7, sw - 262, 14, q.v / top, d[1], '#FFFFFF');   // 条长 = 相对第一名的比例；右侧数字 = 占总伤害的百分比
+    txt(Math.round(q.v / (stats.damage || 1) * 100) + '%', hw - 28, yy, 20, '#B3261E', 'right', 0, FONT_IMPACT);
+  });
   ctx.restore();
   // 再来一次
-  const bw = 280, bh = 62, bx = W / 2 - bw / 2, byy = cy + 148 * ls + 54 * ls - bh / 2;
+  const bw = 280, bh = 62, bx = W / 2 - bw / 2, byy = cy + 306 * ls - bh / 2;
   uiRects.over = { x: bx, y: byy, w: bw, h: bh };
   const hv = overT > 0.6 && ptInRect(mouse.x, mouse.y, uiRects.over); if (hv) uiHover = true;
   ctx.save(); ctx.globalAlpha = k;
@@ -2904,8 +3433,9 @@ function drawOver() {
    光标 / 冲刺速度线 / 调试信息
    ============================================================ */
 function drawCrosshair(x, y) {
-  const p = player, wi = p.weapon, rl = p.rel[wi] > 0, gap = 8 + clamp(p.spread, 0, 30) * 0.7, len = 9, R = gap + len + 8;   // 霰弹枪扩散大 → 准星张得更开
-  const col = rl ? '#FFFFFF' : p.hasTarget ? '#FF4A36' : '#FFE23F';
+  const p = player, wi = p.weapon, rl = p.rel[wi] > 0, hyp = UPS.hyperion.lvl > 0, hk = hyp ? clamp(p.hypT / hyperionTime(), 0, 1) : 0;
+  const gap = 6 + (2 + clamp(p.spread, 0, 30) * 0.7) * (hyp ? 1 - hk : 1), len = 9, R = gap + len + 8;   // 霰弹枪扩散大 → 准星张得更开；亥伯龙连射时逐渐收紧
+  const col = rl ? '#FFFFFF' : p.hypLock ? '#5FF3FF' : p.hasTarget ? '#FF4A36' : hyp ? mixCol('#FFFFFF', '#5FF3FF', hk) : '#FFE23F';   // 亥伯龙：由白渐变到青蓝，锁定后全青
   ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.save();
   if (rl) ctx.rotate(uiT * 6);
@@ -2916,13 +3446,14 @@ function drawCrosshair(x, y) {
   }
   ctx.restore();
   circ(ctx, 0, 0, 2.2); ctx.fillStyle = '#000'; ctx.fill(); circ(ctx, 0, 0, 1.1); ctx.fillStyle = col; ctx.fill();
-  const frac = rl ? 1 - p.rel[wi] / gun.reload : p.ammo[wi] / p.mmax[wi];   // 外圈：当前武器的弹药量 / 装弹进度
+  const frac = rl ? 1 - p.rel[wi] / gun.reload : (p.gunzT > 0 ? 1 : p.ammo[wi] / p.mmax[wi]);   // 外圈：当前武器的弹药量 / 装弹进度（双持狂暴期间不耗弹 → 常满）
   ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; circ(ctx, 0, 0, R); ctx.stroke();
   ctx.lineWidth = 2.8; ctx.strokeStyle = rl ? '#5FF3FF' : '#FFD23F';
   ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(frac, 0, 1)); ctx.stroke();
   ctx.restore();
   if (rl) txt('装填中', x, y + R + 16, 13, '#5FF3FF', 'center', 4);
   else if (p.swapT > 0) txt('换枪中', x, y + R + 16, 13, '#F4E9D3', 'center', 4);
+  else if (p.hypLock) txt('已锁定', x, y + R + 16, 13, '#5FF3FF', 'center', 4);
 }
 
 function drawCursor() {
@@ -2974,6 +3505,7 @@ function updateWorld(dt) {
   updateBullets(dt);
   updateDrops(dt);
   updateFuses(dt);
+  updateThrows(dt);
   sweepEnemies();
   if (player.alive && player.xp >= player.xpNext) levelUp();
 }
@@ -3029,13 +3561,38 @@ function update(dt) {
   // PAUSE：世界与特效全部冻结
 }
 
+/* 镜头变换：缩放 + 震动位移 + 震动旋转（世界层和叠在它上面的绘制共用） */
+function camXf() { ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot); ctx.scale(ZOOM, ZOOM); ctx.translate(-cam.x + cam.sx + cam.kx, -cam.y + cam.sy + cam.ky); }
+
+/* 卷土重来用的全屏滤镜能力检测（只做一次）：优先 ctx.filter（灰度 + 增对比），不支持就退回"饱和度"混合模式 */
+const FILTER_OK = (() => { try { const g = mkCanvas(2, 2).getContext('2d'); if (typeof g.filter !== 'string') return false; g.filter = 'blur(1px)'; return g.filter === 'blur(1px)'; } catch (err) { return false; } })();
+const SAT_OK = (() => { try { const g = mkCanvas(2, 2).getContext('2d'); g.globalCompositeOperation = 'saturation'; return g.globalCompositeOperation === 'saturation'; } catch (err) { return false; } })();
+let fxCv = null;
+/* 把已经画好的世界层转成高对比黑白。k 为强度（0~1，用于进入 / 退出的过渡） */
+function desaturateWorld(k) {
+  const cw = canvas.width, ch = canvas.height;
+  if (!fxCv || fxCv.width !== cw || fxCv.height !== ch) fxCv = mkCanvas(cw, ch);
+  const fg = fxCv.getContext('2d');
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (FILTER_OK) {
+    fg.drawImage(canvas, 0, 0);
+    ctx.globalAlpha = k; ctx.filter = 'grayscale(1) contrast(1.7) brightness(1.08)'; ctx.drawImage(fxCv, 0, 0); ctx.filter = 'none';
+  } else if (SAT_OK) {
+    ctx.globalAlpha = k; ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, cw, ch);   // 饱和度归零
+    fg.drawImage(canvas, 0, 0);
+    ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = k * 0.6; ctx.drawImage(fxCv, 0, 0);                              // 画面与自身"叠加"，拉高对比
+  }
+  ctx.restore();
+}
+
 function render() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalAlpha = 1; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
   uiHover = false;
   // ---- 世界层（镜头：缩放 + 震动位移 + 震动旋转）----
   ctx.save();
-  ctx.translate(W / 2, H / 2); ctx.rotate(cam.rot); ctx.scale(ZOOM, ZOOM); ctx.translate(-cam.x + cam.sx + cam.kx, -cam.y + cam.sy + cam.ky);
+  camXf();
   const x0 = cam.x - vw - 90, y0 = cam.y - vh - 90, x1 = cam.x + vw + 90, y1 = cam.y + vh + 90;
   drawGround(x0, y0, x1, y1);
   drawDecals();
@@ -3047,10 +3604,18 @@ function render() {
     if (o.dk === 1) drawPropCached(o); else if (o.dk === 2) drawEnemy(o); else if (o.dk === 3) drawPlayer(); else drawDrop(o);
   }
   drawEnemyOverlays();
-  drawBooms(); drawBolts(); drawZaps(); drawBullets(); drawParts(); drawTexts(); drawWords(false);
+  drawBooms(); drawBolts(); drawTracers(); drawZaps(); drawThrows(); drawBullets(); drawParts(); drawTexts(); drawWords(false);
   ctx.restore();
+  // 卷土重来：世界转成高对比黑白，再给敌人叠一层红色剪影（只有敌人保留颜色）
+  if (player.swT > 0 && state !== ST.START) {
+    desaturateWorld(clamp(Math.min((SW_TIME - player.swT) / 0.25, player.swT / 0.4), 0, 1));
+    ctx.save(); camXf();
+    for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (e.vis && !e.dead) drawEnemyRed(e); }
+    ctx.restore();
+  }
   // ---- 屏幕层 ----
   if (speedT > 0) drawSpeedLines(speedT / 0.22);
+  if (player.gunzT > 0 && state !== ST.START) drawGunzBorder();   // 双持狂暴：燃烧的橙红网点边框
   ctx.drawImage(vignCv, 0, 0, W, H);
   const lowHp = player.alive && player.hp < player.hpMax * 0.3 && state !== ST.START;
   const redA = Math.max(hurtFlash * 0.55, lowHp ? 0.16 + Math.sin(uiT * 6) * 0.08 : 0);
@@ -3098,9 +3663,15 @@ window.__wm = {
   spawn(n, type, elite, dist) { for (let i = 0; i < n; i++) { const a = rand(TAU), d = dist || rand(380, 700); spawnEnemy(type || 0, player.x + Math.cos(a) * d, player.y + Math.sin(a) * d, !!elite); } },
   hurt(n) { hurtPlayer(n, player.x + 40, player.y, true); },
   pick: chooseCard,
-  up(key, ri) { applyUpgrade(key, ri === undefined ? 0 : ri); },
+  wipe() { bullets.length = 0; },                                                               // 清掉飞行中的子弹（测试用）
+  up(key) { applyUpgrade(key); },                                                            // 直接获得一级词条（测试用）
   weapon(i) { if (i === undefined) return player.weapon; switchWeapon(i); },   // 不传参数返回当前武器序号；传 0/1/2 切换
   gun: () => gun,                                                             // 当前武器的实际数值
+  hit(i, base, opts) { return applyDamage(enemies[i], base, opts || {}); },                           // 对第 i 个敌人走一次统一伤害结算，返回实际伤害
+  ups: () => { const o = {}; for (const k in UPS) o[k] = [UPS[k].lvl, +UPS[k].val.toFixed(3), UPS[k].tier, UPS[k].tag || '']; return o; },   // 全部词条的 [等级, 数值, 分级, 角标]
+  dmgBy: () => JSON.parse(JSON.stringify(stats.dmgBy)),                                                     // 按来源统计的伤害
+  cards: () => cards.map(c => c.key),
+  fx: () => ({ tracers: tracers.length, throws: throws.length, bolts: bolts.length, booms: booms.length, words: words.map(w => w.str) }),
   solids: () => solidsNear.map(p => ({ type: p.type, x: p.x, y: p.y, cr: p.cr, hw: p.hw, hh: p.hh, rot: p.rot, hard: !!p.hard })),   // 玩家附近的固体障碍（掩体测试用）
   tick(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 60); render(); }   // 手动推帧（不依赖 requestAnimationFrame）
 };
@@ -3115,7 +3686,9 @@ function warmup() {
   txt('护盾 100 / 100 冲刺就绪 装填中 换枪中 火焰 40% 电击 30% 0123456789', W / 2, H / 2 + 60, 16, '#fff', 'center', 4);
   txt('00:00 LV 12', W / 2, H / 2 + 90, 24, '#fff', 'center', 4, FONT_IMPACT);
   spaced('WASTELAND MAYHEM', W / 2, H / 2 + 130, 24, '#fff', 6);
-  for (const id of ['shotgun', 'firerate', 'pierce', 'fire', 'shock', 'damage', 'speed', 'magnet', 'crit', 'shield', 'maxhp', 'dashcd', 'heal', 'nuke', 'frenzy', 'vault', 'skull']) drawIcon(id, W / 2, H / 2 + 180, 12, '#FFD23F');
+  comicText('PING! BOOM! KABOOM! GUNZERK! HISSS! NOVA! SECOND WIND! 殊死一搏！已锁定', W / 2, H / 2 + 20, 30, '#FFD23F', 6, 4);
+  for (const id of ['shotgun', 'firerate', 'pierce', 'fire', 'shock', 'damage', 'speed', 'magnet', 'crit', 'shield', 'maxhp', 'dashcd', 'heal', 'nuke', 'frenzy', 'vault', 'skull',
+    'jakobs', 'torgue', 'hyperion', 'tediore', 'gunzerker', 'corrosive', 'slag', 'nova', 'secondwind', 'bloodlust']) drawIcon(id, W / 2, H / 2 + 180, 12, '#FFD23F');
 }
 
 resize();
