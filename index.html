@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>废土疯潮 v1.3.1 · WASTELAND MAYHEM</title>
+<title>废土疯潮 v1.4.0 · WASTELAND MAYHEM</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a120b; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
@@ -45,8 +45,8 @@ const FONT_UI = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Heiti SC",sans-
 
 /* 版本号：每次改动上线前手动更新（VERSION 末位递增，BUILD_DATE 填当天），三处要一致——这里、<title>、以及提交说明。
    显示在浏览器标签页标题、开始界面右下角、暂停 / 结算界面和调试信息里，用来确认线上是不是最新版。
-   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 */
-const VERSION = 'v1.3.1', BUILD_DATE = '2026-11-25';
+   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场） */
+const VERSION = 'v1.4.0', BUILD_DATE = '2026-11-25';
 document.title = '废土疯潮 ' + VERSION + ' · WASTELAND MAYHEM';
 
 /* ============================================================
@@ -172,6 +172,34 @@ const SFX = {
   down() { if (!this.ok()) return; [392, 330, 262, 196].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, f1: f * 0.94, dur: 0.3, vol: 0.16, delay: i * 0.16 })); },
   revive() { if (!this.ok()) return; [392, 523, 659, 784, 1046].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, dur: 0.22, vol: 0.18, delay: i * 0.07 })); Snd.noise({ dur: 0.5, vol: 0.2, type: 'bandpass', f0: 800, f1: 3200, q: 0.7 }); },
   vault() { if (!this.ok() || !Snd.gate('vault', 1500)) return; [523, 784, 1046, 1318].forEach((f, i) => Snd.tone({ type: 'sine', f0: f, dur: 0.25, vol: 0.14, delay: i * 0.06 })); },
+  /* 第四轮：Boss 登场（低音轰鸣）/ 狂暴 / 击杀 / 预警 / 迫击炮 / 齐射 / 冲锋 / 激光 / 环形弹幕 / 无人机 / 羽毛 / 吐息 / 砸地 */
+  bossIntro() {
+    if (!this.ok()) return;
+    Snd.tone({ type: 'sawtooth', f0: 130, f1: 36, dur: 1.35, vol: 0.5, lp: 520 }); Snd.noise({ dur: 1.15, vol: 0.42, type: 'lowpass', f0: 900, f1: 70 });
+    Snd.tone({ type: 'square', f0: 70, f1: 28, dur: 0.3, vol: 0.5, delay: 0.26 }); Snd.noise({ dur: 0.26, vol: 0.3, type: 'lowpass', f0: 1800, f1: 120, delay: 0.26 });
+    Snd.tone({ type: 'square', f0: 55, f1: 40, dur: 0.5, vol: 0.2, lp: 420, delay: 0.62 }); Snd.tone({ type: 'square', f0: 55, f1: 40, dur: 0.55, vol: 0.22, lp: 420, delay: 1.12 });
+  },
+  bossRage() {
+    if (!this.ok()) return;
+    Snd.tone({ type: 'sawtooth', f0: 220, f1: 55, dur: 0.7, vol: 0.3, lp: 1500 }); Snd.noise({ dur: 0.5, vol: 0.3, type: 'bandpass', f0: 300, f1: 2400, q: 0.9 });
+    Snd.tone({ type: 'square', f0: 90, f1: 40, dur: 0.25, vol: 0.4 }); Snd.tone({ type: 'square', f0: 130, f1: 50, dur: 0.3, vol: 0.36, delay: 0.14 });
+  },
+  bossDie() {
+    if (!this.ok()) return;
+    Snd.tone({ type: 'sine', f0: 90, f1: 24, dur: 1.3, vol: 0.6 }); Snd.noise({ dur: 1.4, vol: 0.55, type: 'lowpass', f0: 3000, f1: 60 });
+    Snd.noise({ dur: 0.3, vol: 0.4, type: 'lowpass', f0: 2200, f1: 140, delay: 0.16 }); Snd.noise({ dur: 0.3, vol: 0.36, type: 'lowpass', f0: 2000, f1: 120, delay: 0.36 });
+    [523, 659, 784, 1046, 1318, 1568].forEach((f, i) => Snd.tone({ type: 'triangle', f0: f, dur: 0.22, vol: 0.16, delay: 0.45 + i * 0.08 }));
+  },
+  warn() { if (!this.ok() || !Snd.gate('bwarn', 240)) return; Snd.tone({ type: 'triangle', f0: 880, f1: 1320, dur: 0.1, vol: 0.09 }); Snd.tone({ type: 'triangle', f0: 880, f1: 1320, dur: 0.1, vol: 0.09, delay: 0.13 }); },
+  mortar() { if (!this.ok() || !Snd.gate('mortar', 120)) return; Snd.tone({ type: 'sine', f0: 420, f1: 110, dur: 0.32, vol: 0.18 }); Snd.noise({ dur: 0.2, vol: 0.16, type: 'lowpass', f0: 1500, f1: 300 }); },
+  cannon() { if (!this.ok() || !Snd.gate('cannon', 90)) return; Snd.noise({ dur: 0.26, vol: 0.3, type: 'lowpass', f0: 1800, f1: 160 }); Snd.tone({ type: 'sine', f0: 110, f1: 44, dur: 0.26, vol: 0.3 }); },
+  charge() { if (!this.ok()) return; Snd.noise({ dur: 0.7, vol: 0.3, type: 'bandpass', f0: 300, f1: 1900, q: 1 }); Snd.tone({ type: 'sawtooth', f0: 90, f1: 260, dur: 0.7, vol: 0.2, lp: 1200 }); },
+  laser() { if (!this.ok()) return; Snd.tone({ type: 'sawtooth', f0: 180, f1: 330, dur: 0.5, vol: 0.14, lp: 2200 }); Snd.noise({ dur: 0.5, vol: 0.14, type: 'highpass', f0: 2600, f1: 5200 }); },
+  ring() { if (!this.ok() || !Snd.gate('bring', 150)) return; Snd.tone({ type: 'square', f0: 520, f1: 240, dur: 0.2, vol: 0.1, lp: 2400 }); },
+  drone() { if (!this.ok()) return; Snd.tone({ type: 'square', f0: 660, f1: 990, dur: 0.12, vol: 0.08 }); Snd.tone({ type: 'square', f0: 660, f1: 990, dur: 0.12, vol: 0.08, delay: 0.09 }); },
+  feather() { if (!this.ok() || !Snd.gate('feather', 110)) return; Snd.noise({ dur: 0.1, vol: 0.12, type: 'bandpass', f0: 3200, q: 1.4 }); },
+  breath(el) { if (!this.ok()) return; if (el === 'acid') Snd.noise({ dur: 1.0, vol: 0.2, type: 'highpass', f0: 2600, f1: 4800 }); else Snd.noise({ dur: 1.0, vol: 0.26, type: 'lowpass', f0: 2600, f1: 480 }); },
+  slam() { if (!this.ok()) return; Snd.noise({ dur: 0.7, vol: 0.55, type: 'lowpass', f0: 2400, f1: 70 }); Snd.tone({ type: 'sine', f0: 70, f1: 26, dur: 0.7, vol: 0.6 }); Snd.tone({ type: 'square', f0: 60, f1: 34, dur: 0.16, vol: 0.2 }); },
   death() { if (!this.ok()) return; [440, 370, 311, 220].forEach((f, i) => Snd.tone({ type: 'sawtooth', f0: f, f1: f * 0.8, dur: 0.3, vol: 0.16, lp: 1200, delay: i * 0.18 })); }
 };
 
@@ -284,6 +312,12 @@ const fuses = [], booms = [], bolts = [], zaps = [], ghosts = [], decals = [], t
 const drawList = [], solidsNear = [];
 let boxCount = 0;   // solidsNear 里集装箱的数量（为 0 时敌人跳过绕行计算）
 let banner = null, gun = null, stats = null;
+/* ---- 第四轮：关底 Boss 战 ----
+   boss 当前 Boss（null = 不在 Boss 战中）· bossN 本局已登场的 Boss 数 · bossNextT 下一次登场的游戏时间（180 / 360 / 540 …）
+   bossIntro 定格出场动画的剩余秒数（期间世界逻辑冻结、镜头移向登场位置）· bossSlow 击杀 Boss 后的慢动作剩余秒数
+   vaultPending 秘藏宝箱还没拾取：拾取之前常规刷怪 / 波次保持暂停 · vaultMode 当前三选一是宝箱强化的"必出稀有"模式 */
+let boss = null, bossN = 0, bossNextT = 180, bossIntro = 0, bossSlow = 0, vaultPending = false, vaultMode = false;
+const ebullets = [], warns = [], zones = [], rings = [];   // ebullets：Boss 弹幕（高爆炮弹 / 能量球 / 羽毛）· warns：地面红色预警圈 · zones：残留危险区（吐息）· rings：砸地冲击波环
 
 function xpNeed(l) { return Math.floor(8 + l * 5 + Math.pow(l, 1.75)); }
 function newPlayer() {
@@ -368,7 +402,9 @@ const TIPS = [
   '提示：躲在掩体后面的敌人不会被自动瞄准锁定，换个角度再打。',
   '提示：紫渣 + 火 / 电是经典连招——先给敌人镀上紫渣，之后的伤害全部翻倍。',
   '提示：腐蚀专克重装铁桶兵：被酸液覆盖的敌人受到的一切伤害 +25%。',
-  '提示：拿了泰迪尔之后，换弹就是把手里的枪扔出去炸人，残弹越多越疼。'
+  '提示：拿了泰迪尔之后，换弹就是把手里的枪扔出去炸人，残弹越多越疼。',
+  '提示：每 3 分钟会有关底 Boss 登场——地面红圈和红线都是预警，冲刺期间无敌可以硬穿。',
+  '提示：击倒关底 Boss 会掉秘藏宝箱：必出稀有以上词条，还能回复 30% 生命。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -404,7 +440,7 @@ const Grid = {
    地面纹理 & 程序化区块（岩块 / 油桶 / 仙人掌 / 路牌 ...）
    ============================================================ */
 const CHUNK = 512;
-let groundPattern = null, dotPattern = null;
+let groundPattern = null, dotPattern = null, dotBlack = null;
 const chunks = new Map();
 const deadBarrels = new Set();
 
@@ -478,6 +514,10 @@ function buildGround() {
   const d = document.createElement('canvas'); d.width = d.height = 12; const dg = d.getContext('2d');
   dg.fillStyle = '#6B5232'; dg.beginPath(); dg.arc(3, 3, 1.5, 0, TAU); dg.fill(); dg.beginPath(); dg.arc(9, 9, 1.5, 0, TAU); dg.fill();
   dotPattern = ctx.createPattern(d, 'repeat');
+  // 黑色半调网点（Boss 登场定格的背景用）
+  const b = document.createElement('canvas'); b.width = b.height = 12; const bg = b.getContext('2d');
+  bg.fillStyle = '#000'; circ(bg, 3, 3, 2.1); bg.fill(); circ(bg, 9, 9, 2.1); bg.fill();
+  dotBlack = ctx.createPattern(b, 'repeat');
 }
 
 function evictChunks(x, y) {
@@ -800,7 +840,7 @@ function heal(n) {
 /* 冲刺翻滚：沿移动方向（静止时沿瞄准方向）冲刺，期间无敌并留下残影 */
 function tryDash() {
   const p = player;
-  if (state !== ST.PLAY || !p.alive || p.dashCd > 0 || p.dashT > 0) return;
+  if (state !== ST.PLAY || !p.alive || p.dashCd > 0 || p.dashT > 0 || bossIntro > 0) return;
   const [ix, iy] = inputDir(); let dx = ix, dy = iy;
   if (!dx && !dy) { dx = Math.cos(p.aim); dy = Math.sin(p.aim); }
   const l = hyp(dx, dy) || 1;
@@ -814,7 +854,7 @@ function tryDash() {
 
 function startReload(manual) {
   const p = player, i = p.weapon;
-  if (p.rel[i] > 0 || p.ammo[i] >= p.mmax[i] || !p.alive || p.swapT > 0) return;
+  if (p.rel[i] > 0 || p.ammo[i] >= p.mmax[i] || !p.alive || p.swapT > 0 || bossIntro > 0) return;
   p.rel[i] = gun.reload; SFX.reload();
   if (UPS.tediore.lvl) throwGun(p.ammo[i] / p.mmax[i]);   // 泰迪尔：换弹 = 把手里这把枪朝准星掷出去（残弹越多越狠）
 }
@@ -823,7 +863,7 @@ function startReload(manual) {
    每把枪的弹匣和装填进度各自保留；装填只在手持时推进，所以"打空一把马上换另一把"是有效的战术 */
 function switchWeapon(to) {
   const p = player;
-  if (state !== ST.PLAY || !p.alive) return;
+  if (state !== ST.PLAY || !p.alive || bossIntro > 0) return;
   to = ((to % 3) + 3) % 3;
   if (to === p.weapon) return;
   p.prevW = p.weapon; p.weapon = to; p.swapT = 0.22; p.fireT = Math.max(p.fireT, 0.12); p.heat = 0;
@@ -841,7 +881,7 @@ function updateAim(dt) {
     const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy; if (d2 > reach * reach) continue;
     const da = wrapA(Math.atan2(dy, dx) - base), lim = lim0 + Math.atan2(e.r, Math.sqrt(d2)) * 0.7;
     if (Math.abs(da) > lim) continue;
-    if (solidsNear.length && losBlocked(e.x, e.y)) continue;   // 躲在掩体后面的敌人不锁定
+    if (solidsNear.length && !e.boss && !e.drone && losBlocked(e.x, e.y)) continue;   // 躲在掩体后面的敌人不锁定（Boss 和天上的无人机总能锁定）
     const score = Math.abs(da) / lim + Math.sqrt(d2) / reach * 0.35;
     if (score < bestScore) { bestScore = score; best = Math.atan2(dy, dx); has = true; }
   }
@@ -1074,8 +1114,8 @@ function edgePos(margin) {
   return [cam.x - hw, cam.y + rand(-hh, hh)];
 }
 
-function spawnEnemy(type, x, y, elite) {
-  if (enemies.length >= MAX_E) return;
+function spawnEnemy(type, x, y, elite, force) {
+  if (enemies.length >= MAX_E && !force) return null;   // force：Boss 放出的无人机不受数量上限限制
   const T = ETYPES[type], sc = elite ? 1.7 : 1, e = enemyPool.pop() || {};
   e.type = type; e.x = x; e.y = y; e.scale = sc; e.r = T.r * sc;
   e.hp = e.hpMax = T.hp * hpScale() * (elite ? 12 : 1);
@@ -1086,10 +1126,11 @@ function spawnEnemy(type, x, y, elite) {
   e.burnTimer = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.shockSlowTimer = 0; e.corrosiveTimer = 0; e.slagTimer = 0; e.armT = 0; e.awayT = 0;   // 状态计时器：燃烧 / 电击减速 / 腐蚀 / 紫渣
   e.ang = Math.atan2(player.y - y, player.x - x); e.walk = rand(TAU); e.t = rand(TAU);
   e.wob = type === 0 ? rand(0.15, 0.45) : 0; e.wobF = rand(3, 6); e.wobP = rand(TAU);
-  e.arming = false; e.dk = 2; e.vis = false; e.blk = false; e.side = 1;
+  e.arming = false; e.dk = 2; e.vis = false; e.blk = false; e.side = 1; e.boss = false; e.drone = false;   // 从对象池复用的对象可能带着上一个身份的标记
   if (solidsNear.length) resolveSolids(e, false);   // 刷怪点正好压在掩体上时，先把敌人推到掩体外
   enemies.push(e);
-  for (let i = 0; i < 2; i++) addPart('smoke', x + rand(-8, 8), y + rand(-4, 8), rand(-40, 40), rand(-40, 20), rand(0.3, 0.45), rand(4, 6.5), '#D9B377');
+  for (let i = 0; i < 2; i++) addPart('smoke', x + rand(-8, 8), y + rand(-4, 8), rand(-40, 40), rand(-40, 20),     rand(0.3, 0.45), rand(4, 6.5), '#D9B377');
+  return e;
 }
 
 function pickType() {
@@ -1101,6 +1142,8 @@ function pickType() {
 }
 
 function updateSpawns(dt) {
+  if (boss || vaultPending) return;   // Boss 登场后常规刷怪 / 波次暂停，直到拾取秘藏宝箱
+  if (gameTime >= bossNextT && player.alive) { startBossFight(); return; }   // 每 3 分钟一个关底 Boss
   spawnT -= dt;
   if (spawnT <= 0) {
     const rate = 1 + 0.028 * gameTime + 0.00028 * gameTime * gameTime, q = edgePos(70);
@@ -1147,6 +1190,7 @@ function applyDamage(target, baseDamage, options) {
   if (slagged) dmg *= 2;
   if (e.corrosiveTimer > 0) dmg *= 1.25;
   e.hp -= dmg; if (!o.dot) e.flash = 0.07;
+  if (e.boss) e.hpGhostT = 0.45;   // Boss 血条：掉血残影先停一下再追
   const kb = (o.isCrit ? 280 : 170) * (1 - e.kbRes) * (o.kb || 0);
   if (kb > 0) { e.kx += (o.kx || 0) * kb; e.ky += (o.ky || 0) * kb; }
   const tag = o.sourceTag || 'bullet';
@@ -1179,7 +1223,7 @@ function applyCorrosive(e, dur) {
   e.corrosiveTimer = Math.max(e.corrosiveTimer, dur);
 }
 function applySlag(e, dur) {
-  if (e.slagTimer <= 0) { SFX.slag(); for (let i = 0; i < 5; i++) addPart('acid', e.x + rand(-e.r, e.r), e.y + rand(-e.r, e.r) * 0.6, rand(-30, 30), rand(10, 50), rand(0.4, 0.6), rand(2, 3.2) * e.scale, '#C44DFF'); }
+  if (e.slagTimer <= 0) { SFX.slag(); for (let i = 0; i < 5; i++) addPart('acid', e.x + rand(-e.r, e.r), e.y + rand(-e.r, e.r) * 0.6, rand(-30, 30), rand(10, 50), rand(0.4, 0.6), rand(2, 3.2) * (e.boss ? 2.6 : e.scale), '#C44DFF'); }
   e.slagTimer = Math.max(e.slagTimer, dur);
 }
 /* 重装 / 高血量敌人：重装铁桶兵、任何 BADASS，或血量达到疯子 4.6 倍以上的目标 */
@@ -1270,10 +1314,11 @@ function killEnemy(e, dx, dy) {
   if (e.dead) return; e.dead = true;
   stats.kills++;
   const p = player;
+  if (p.swT > 0) secondWindRevive();    // 殊死一搏期间的反杀（击杀 Boss 同样算）
+  else if (p.alive && UPS.gunzerker.lvl) { p.gzKills++; if (p.gunzT <= 0 && p.gzKills >= 30) { p.gzKills -= 30; startGunzerker(); } }   // 双持狂暴：每累计击杀 30 人触发（击杀 Boss 同样计数）
+  if (e.boss) { killBoss(e); return; }  // 关底 Boss：走独立的死亡与战利品流程
   if (e.burnTimer > 0) fireSpread(e);   // 燃烧中的敌人死亡：引燃身边的人（被烧死 / 被打死 / 自爆都算）
-  if (p.swT > 0) secondWindRevive();    // 殊死一搏期间的反杀
-  else if (p.alive && UPS.gunzerker.lvl) { p.gzKills++; if (p.gunzT <= 0 && p.gzKills >= 30) { p.gzKills -= 30; startGunzerker(); } }   // 双持狂暴：每累计击杀 30 人触发
-  if (e.type === 1) { fuses.push({ x: e.x, y: e.y, t: rand(0.05, 0.16), kind: 'bomber' }); return; }   // 自爆矮人：短引信后爆炸
+  if (e.type === 1) { fuses.push({ x: e.x, y: e.y, t: rand(0.05, 0.16), kind: 'bomber' }); return; }   // 自爆矮人 / 自爆无人机：短引信后爆炸
   SFX.kill();
   const blood = e.type === 0 ? ['#C0281F', '#8F1510', '#E9CDA6'] : ['#C0281F', '#8F1510', '#7B828A'];
   const n = e.elite ? 10 : 4;
@@ -1367,6 +1412,406 @@ function updateFuses(dt) {
 }
 
 /* ============================================================
+   第四轮：关底 Boss 战
+   每 3 分钟（180 / 360 / 540 秒 …）登场一个关底 Boss：1.8 秒定格出场 → 顶部独立血条 → 血量过半进入狂暴阶段。
+   所有 Boss 攻击都遵守"先地面红框预警、后判定伤害"，冲刺无敌可以硬穿。
+   Boss 是 enemies 里的一员（e.boss），所以 12 个词条的结算（暴击 / 紫渣 / 腐蚀 / 灼烧 / 电弧 / 火箭 / 弹射 / 新星 …）原样生效；
+   区别只有两点：免疫击退（kbRes = 1）、电击减速减半（移速 ×0.7，而不是小兵的 ×0.4）。
+   r 碰撞半径 · col 主题色 · col2 辅色 · dark 深色 · sub 定格出场的荒诞副标题（血量见 bossHP，按登场序号递增）
+   ============================================================ */
+const BOSS_DEFS = [
+  { name: '轰炸狂人', name2: '布姆·博姆', en: 'BOOM BEWM', sub: '"他把你的头盖骨当成了烟灰缸！"', col: '#FF6A1E', col2: '#FFD23F', dark: '#3A0F0C', r: 44 },
+  { name: '亥伯龙实验体', name2: 'W4R-D3N 构造体', en: 'W4R-D3N', sub: '"微笑服务已过期，现在只提供碾压。"', col: '#FFD23F', col2: '#35B9FF', dark: '#0B1D3A', r: 42 },
+  { name: '血翼变异体', name2: '元素领主', en: 'BLOODWING', sub: '"它尝遍了潘多拉的每一种元素，现在想尝尝你。"', col: '#E8452C', col2: '#8CFF3A', dark: '#1F0A2E', r: 46 }
+];
+const BOSS_INTRO = 1.8;   // 定格出场时长（秒）
+/* Boss 血量：按登场序号（每 3 分钟一个）沿玩家的成长曲线递增。曲线来自实测——用游戏自己的抽卡规则随机组 build、
+   对木桩持续输出：3 分钟中位约 200 / 秒，之后每个 3 分钟约 ×4.4、×2.25、×1.95、×1.95 …。
+   每个血量都定在"中位输出 × 约 36 秒"：实际战斗要躲预警，输出大约只有站桩的 2/3，所以中位 build 实战约 50 秒击杀 */
+const BOSS_DPS_STEP = [1, 4.4, 9.9, 19.3, 37.6];
+function bossHP(idx) { return Math.round(7200 * (idx < BOSS_DPS_STEP.length ? BOSS_DPS_STEP[idx] : BOSS_DPS_STEP[4] * Math.pow(1.95, idx - 4)) / 100) * 100; }
+function bossDmg(e) { return dmgScale() * (1 + 0.25 * e.cycle); }   // Boss 伤害：随游戏时间与轮次（加强版）递增
+function bossBarOn() { return !!boss && bossIntro <= 0 && state !== ST.OVER; }
+function muteRect() { const m = uiRects.mute; return { x: m.x, y: m.y + (bossBarOn() ? 56 : 0), w: m.w, h: m.h }; }   // Boss 战期间顶部让位给 Boss 血条
+function bossCols(e) { return e.kind === 0 ? ['#B5452A', '#D9713F', '#5E656D', '#33363D'] : e.kind === 1 ? ['#FFD23F', '#F4F1E8', '#7B828A', '#33363D'] : ['#7A1F2A', '#A9323C', '#5E1A2A', '#8E2A3A']; }
+
+/* 关底 Boss 登场：选定位置 → 生成 → 清掉远处的残留小怪 → 进入 1.8 秒定格出场。kind 仅供测试指定，正常按 3 个一轮轮换 */
+function startBossFight(kind) {
+  const idx = bossN, cycle = Math.floor(idx / 3), k = kind === undefined ? idx % 3 : kind, D = BOSS_DEFS[k], p = player;
+  let x = p.x + 300, y = p.y;
+  const a0 = Math.random() * TAU;
+  for (let n = 0; n < 16; n++) {   // 登场位置：离玩家 300px 的开阔处（优先左右方向，横向视野更宽）
+    const i = n < 8 ? n * 2 : (n - 8) * 2 + 1, a = a0 + i / 16 * TAU, cx = p.x + Math.cos(a) * 300, cy = p.y + Math.sin(a) * 300;
+    let clear = true;
+    for (let j = 0; j < solidsNear.length && clear; j++) { const q = solidsNear[j]; if (!q.dead && hyp(q.x - cx, q.y - cy) < (q.br || q.cr) + D.r + 24) clear = false; }
+    if (clear) { x = cx; y = cy; break; }
+  }
+  const hp = bossHP(idx), ta = Math.atan2(p.y - y, p.x - x);
+  const e = {
+    boss: true, kind: k, cycle, type: 3, x, y, r: D.r, scale: 1, hp, hpMax: hp, hpGhost: hp, hpGhostT: 0,
+    kbRes: 1, mass: 60, dead: false, elite: false, flash: 0, spawnT: 0, kx: 0, ky: 0,
+    burnTimer: 0, burnTick: 0, burnDps: 0, burnAcc: 0, shockSlowTimer: 0, corrosiveTimer: 0, slagTimer: 0, armT: 0, awayT: 0,   // 状态计时器与小兵同一套
+    ang: ta, walk: 0, t: rand(TAU), wob: 0, dk: 2, vis: true, blk: false, side: 1,
+    phase: 1, st: 'move', stT: 0, age: 0, rate: 1, tur: ta, trec: 0, dir: Math.random() < 0.5 ? 1 : -1, dirT: rand(2.5, 4), mvx: 0, mvy: 0
+  };
+  if (k === 0) { e.mT = 1.6; e.sT = 3; e.cT = 5; e.chgA = ta; e.chgD = 0; }                                              // 迫击炮 / 齐射 / 冲锋计时
+  else if (k === 1) { e.lT = 2.2; e.dT = 4; e.rT = 2; e.lA = ta; e.lDir = 1; e.lRev = 1.2; e.nB = 2; e.lSpd = 0.55; e.lDur = 3.5; }   // 激光 / 无人机 / 环形弹幕计时
+  else { e.bT = 2; e.fT = 4.2; e.fw = 0; e.fwT = 0; e.el = 'fire'; e.txA = ta; e.sT = 5; e.sx = x; e.sy = y; e.fired = false; e.over = false; }   // 吐息 / 羽毛 / 砸地计时
+  enemies.push(e);
+  boss = e; bossN++; vaultPending = true; bossIntro = BOSS_INTRO;
+  bossNextT += 180; if (bossNextT < gameTime + 120) bossNextT = gameTime + 120;   // 下一个 Boss：下一个 3 分钟整点，但至少隔 2 分钟
+  warns.length = 0; ebullets.length = 0; zones.length = 0; rings.length = 0;
+  for (let i = 0; i < enemies.length; i++) { const o = enemies[i]; if (!o.boss && hyp(o.x - p.x, o.y - p.y) > 760) o.dead = true; }   // 清场：只留屏幕附近的残留小怪
+  banner = null;
+  for (let i = words.length - 1; i >= 0; i--) if (words[i].screen) poolKill(words, wordPool, i);   // 定格画面不让上一刻的屏幕大字（BOSS DEFEATED! 等）压住
+  SFX.bossIntro();
+}
+
+function updateBoss(e, dt) {
+  const p = player;
+  e.stT += dt;
+  if (e.hpGhost < e.hp) e.hpGhost = e.hp;
+  else if (e.hpGhost > e.hp) { if (e.hpGhostT > 0) e.hpGhostT -= dt; else e.hpGhost = Math.max(e.hp, e.hpGhost - e.hpMax * 0.3 * dt); }
+  if (e.phase === 1 && e.hp <= e.hpMax * 0.5) bossEnrage(e);
+  if (e.st !== 'stun' && e.st !== 'charge') crushCover(e);   // 冲锋中不在这里碾：交给撞墙判定，撞上才会眩晕
+  (e.kind === 0 ? updateBossCar : e.kind === 1 ? updateBossWarden : updateBossWing)(e, dt);
+  // 实体身体：与玩家重叠时把玩家推到身体边缘（放在移动之后，本帧走过的距离也算进去）。
+  // 砸地正好落在不动的玩家身上时，Boss 不会一直叠在玩家身上——叠在一起时没有瞄准方向，玩家打不着，
+  // 而巡航方向也是从"Boss → 玩家"算的，会变成零向量卡死
+  if (e.st !== 'leap' && !e.dead && p.alive) {
+    const dx = p.x - e.x, dy = p.y - e.y, d = hyp(dx, dy), min = e.r + p.r;
+    if (d < min) { if (d > 0.01) { p.x += dx / d * (min - d); p.y += dy / d * (min - d); } else p.x += min; }
+  }
+}
+
+/* 狂暴（第二阶段）：顿帧 + 震屏 + 白闪，炸掉一层外壳 */
+function bossEnrage(e) {
+  e.phase = 2;
+  hitStop = Math.max(hitStop, 0.07); addShake(16); whiteFlash = Math.max(whiteFlash, 0.45);
+  addWord('ENRAGED!', W / 2, H * 0.27, '#FF3B2E', 68, null, 0, true);
+  addWord('狂暴化！', W / 2, H * 0.27 + 60, '#FFD23F', 44, null, 0, true);
+  toast(BOSS_DEFS[e.kind].name + ' 进入狂暴阶段！', '#FF5A3C');
+  const cols = bossCols(e);
+  for (let i = 0; i < 14; i++) { const a = rand(TAU), s = rand(120, 420); addPart('chunk', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s - 60, rand(0.5, 0.9), rand(3, 7), pick(cols), rand(TAU)); }
+  for (let i = 0; i < 10; i++) { const a = i / 10 * TAU; addPart('spark', e.x, e.y, Math.cos(a) * 380, Math.sin(a) * 380, 0.4, 2.6, '#FFD23F'); }
+  booms.push({ x: e.x, y: e.y, r: 150, t: 0, max: 0.5, rot: 0, pts: null, ring: true, c1: '#FF3B2E', c2: '#FFD23F', delay: 0 });
+  SFX.bossRage();
+}
+
+/* Boss 推开 / 撞碎路上的掩体：岩石、集装箱、仙人掌、路牌直接碾碎，油桶被撞上会引爆（能炸伤 Boss 自己） */
+function crushCover(e) {
+  for (let i = solidsNear.length - 1; i >= 0; i--) { const q = solidsNear[i]; if (!q.dead && hitSolid(q, e.x, e.y, e.r * 0.95)) crushProp(q, false); }
+}
+function crushProp(q, big) {
+  if (q.type === 'barrel') { igniteBarrel(q, 0.05); return; }
+  q.dead = true;
+  const box = q.type === 'box', n = big ? 12 : 7, cols = box ? ['#C8552A', '#2A8C8C', '#6E7B8A', '#46515E'] : q.type === 'cactus' ? ['#4E9B4B', '#35743A'] : ['#5E5245', '#94836C', '#3B2A1D'];
+  for (let i = 0; i < n; i++) { const a = rand(TAU), s = rand(40, big ? 300 : 180); addPart('chunk', q.x + rand(-14, 14), q.y + rand(-14, 14), Math.cos(a) * s, Math.sin(a) * s - 40, rand(0.4, 0.8), rand(3, 7), pick(cols), rand(TAU)); }
+  for (let i = 0; i < 4; i++) addPart('smoke', q.x + rand(-12, 12), q.y + rand(-12, 12), rand(-40, 40), rand(-60, -10), rand(0.4, 0.7), rand(6, 10), '#7A6A5A');
+  if (!big) addShake(2.5);
+}
+
+/* ---- Boss 弹幕（高爆炮弹 / 能量球 / 羽毛飞刀）：撞到玩家或硬掩体即结算，冲刺无敌期间直接穿过去 ---- */
+const EB_MAX = 90;
+function spawnEB(kind, x, y, a, sp, o) {
+  if (ebullets.length >= EB_MAX) ebullets.shift();
+  o = o || {};
+  ebullets.push({ kind, x, y, a, sp, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: o.r || 6, dmg: o.dmg || 10, life: o.life || 3, home: o.home || 0, homeT: o.homeT || 0, seed: rand(TAU) });
+}
+function updateEBullets(dt) {
+  const p = player;
+  for (let i = ebullets.length - 1; i >= 0; i--) {
+    const b = ebullets[i]; b.life -= dt;
+    if (b.life <= 0) { ebBoom(b, i, false); continue; }   // 炮弹飞到射程尽头也会炸
+    if (b.homeT > 0 && p.alive) {   // 羽毛：追踪微调
+      b.homeT -= dt; b.a = lerpAng(b.a, Math.atan2(p.y - b.y, p.x - b.x), Math.min(1, b.home * dt)); b.vx = Math.cos(b.a) * b.sp; b.vy = Math.sin(b.a) * b.sp;
+    }
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (Math.abs(b.x - cam.x) > vw + 200 || Math.abs(b.y - cam.y) > vh + 200) { ebullets.splice(i, 1); continue; }
+    let stop = false;
+    for (let j = 0; j < solidsNear.length && !stop; j++) { const q = solidsNear[j]; if (!q.dead && q.hard && hitSolid(q, b.x, b.y, b.r)) stop = true; }
+    if (stop || (p.alive && p.swT <= 0 && hyp(p.x - b.x, p.y - b.y) < b.r + p.r)) { ebBoom(b, i, !stop); continue; }
+    if (b.kind === 'shell') {   // 尾焰 + 灰烟
+      if (Math.random() < 0.8) addPart('smoke', b.x - b.vx * 0.035, b.y - b.vy * 0.035, rand(-14, 14), rand(-14, 14) - 8, rand(0.3, 0.5), rand(3, 5), '#7A6A5A');
+      if (Math.random() < 0.7) addPart('spark', b.x - b.vx * 0.015, b.y - b.vy * 0.015, -b.vx * rand(0.1, 0.25) + rand(-40, 40), -b.vy * rand(0.1, 0.25) + rand(-40, 40), rand(0.1, 0.2), 2, Math.random() < 0.5 ? '#FF8A1E' : '#FFD23F');
+    }
+    else if (b.kind === 'feather' && Math.random() < 0.25) addPart('spark', b.x, b.y, rand(-30, 30), rand(-30, 30), 0.15, 1.6, '#D45CFF');
+  }
+}
+function ebBoom(b, i, onPlayer) {
+  ebullets.splice(i, 1);
+  if (b.kind === 'shell') { bossBlast(b.x, b.y, 76, b.dmg); return; }   // 高爆炮弹：落点范围内都吃伤害（带衰减）
+  const col = b.kind === 'orb' ? '#5FF3FF' : '#D45CFF';
+  for (let j = 0; j < 5; j++) { const a = rand(TAU), s = rand(60, 200); addPart('spark', b.x, b.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.12, 0.25), 2, col); }
+  if (onPlayer) { hurtPlayer(b.dmg, b.x - b.vx * 0.01, b.y - b.vy * 0.01); SFX.hit(); }
+}
+
+/* Boss 的爆炸（迫击炮 / 高爆炮弹落点）：只伤玩家，不出现在结算的伤害来源里 */
+function bossBlast(x, y, R, dmg) {
+  const p = player;
+  if (p.alive) { const d = hyp(p.x - x, p.y - y); if (d < R + p.r) hurtPlayer(dmg * (1 - 0.45 * d / (R + p.r)), x, y); }
+  booms.push({ x, y, r: R, t: 0, max: 0.42, rot: rand(TAU), pts: starPts(10, 0.4), ring: false });
+  for (let i = 0; i < 5; i++) { const a = rand(TAU), s = rand(40, 150); addPart('smoke', x + Math.cos(a) * 10, y + Math.sin(a) * 10, Math.cos(a) * s, Math.sin(a) * s - 30, rand(0.4, 0.65), rand(7, 11), i % 3 ? '#4A3C32' : '#7A6A5A'); }
+  for (let i = 0; i < 9; i++) { const a = rand(TAU), s = rand(180, 440); addPart('spark', x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.18, 0.38), 2.4, i % 2 ? '#FFD23F' : '#FF8A1E'); }
+  addDecal('scorch', x, y, R * 0.7);
+  addShake(7); hitStop = Math.max(hitStop, 0.025);
+  addWord('KABOOM!', x, y - 18, '#FF9A1F', 44, 'kboss', 140); SFX.boom();
+}
+
+/* ---- 地面红色预警圈：计时结束才爆炸 ---- */
+function updateWarns(dt) {
+  for (let i = warns.length - 1; i >= 0; i--) { const w = warns[i]; w.t -= dt; if (w.t <= 0) { warns.splice(i, 1); bossBlast(w.x, w.y, w.r, w.dmg); } }
+}
+/* ---- 残留危险区（吐息留下的燃烧 / 酸液地面）：持续 3 秒，站在里面持续掉血 ---- */
+function updateZones(dt) {
+  const p = player;
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const z = zones[i]; z.t += dt;
+    if (z.t >= z.max) { zones.splice(i, 1); continue; }
+    const dx = p.x - z.x, dy = p.y - z.y, d = hyp(dx, dy);
+    if (p.alive && p.swT <= 0 && d < z.len + p.r * 0.5 && Math.abs(wrapA(Math.atan2(dy, dx) - z.a)) < z.half + Math.atan2(p.r * 0.7, d || 1)) hurtPlayer(14 * bossDmg(z), z.x, z.y);
+    if (Math.random() < dt * 46) {   // 区内不断窜出火苗 / 酸液气泡
+      const a = z.a + rand(-z.half, z.half) * 0.9, r = 24 + Math.random() * (z.len - 30), x = z.x + Math.cos(a) * r, y = z.y + Math.sin(a) * r;
+      if (z.el === 'acid') addPart('acid', x, y, rand(-12, 12), rand(-40, -10), rand(0.4, 0.7), rand(2.2, 3.6), '#8CFF3A');
+      else addFlame(x, y, rand(-14, 14), rand(-50, -16), rand(0.3, 0.55), rand(3.5, 6));
+    }
+  }
+}
+/* ---- 砸地冲击波环：向外扩张的一道环，碰到玩家结算一次 ---- */
+function updateRings(dt) {
+  const p = player;
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i]; r.r += r.speed * dt;
+    if (!r.hit && p.alive) {
+      const d = hyp(p.x - r.x, p.y - r.y);
+      if (Math.abs(d - r.r) < r.w / 2 + p.r) { r.hit = true; hurtPlayer(r.dmg, r.x, r.y); if (d > 1) { p.kbx += (p.x - r.x) / d * 380; p.kby += (p.y - r.y) / d * 380; } }
+    }
+    if (r.r >= r.maxR) rings.splice(i, 1);
+  }
+}
+
+/* ====================== Boss 1 布姆·博姆 ======================
+   P1：地毯式迫击炮（玩家周围 6 个红圈，1.2 秒后落地）+ 扇形 5 发高爆炮弹
+   P2：外壳炸裂冒黑烟、提速；每 5 秒锁定玩家方向画出长条红色预警（0.8 秒）→ 高速直线冲锋，撞到掩体或冲到头都会眩晕 1 秒 */
+function updateBossCar(e, dt) {
+  const p = player, rage = e.phase === 2, slow = e.shockSlowTimer > 0 ? 0.7 : 1, kf = Math.exp(-dt * 8), dm = bossDmg(e);
+  e.tur = lerpAng(e.tur, Math.atan2(p.y - e.y, p.x - e.x), 1 - Math.exp(-dt * 4));   // 迫击炮塔独立追踪玩家
+  if (e.trec > 0) e.trec = Math.max(0, e.trec - dt * 5);
+  if (e.st === 'stun') {   // 冲锋后的眩晕：滑行减速，头顶转星星
+    e.x += e.kx * dt; e.y += e.ky * dt; e.kx *= kf; e.ky *= kf;
+    if (e.stT >= 1) { e.st = 'move'; e.stT = 0; e.cT = 5; }
+    return;
+  }
+  if (e.st === 'aim') {   // 预警阶段：车身转向锁定的冲锋方向
+    e.ang = lerpAng(e.ang, e.chgA, 1 - Math.exp(-dt * 12));
+    if (e.stT >= 0.8) { e.st = 'charge'; e.stT = 0; e.chgD = 0; SFX.charge(); }
+    return;
+  }
+  if (e.st === 'charge') {
+    const step = 980 * slow * dt;
+    e.x += Math.cos(e.chgA) * step; e.y += Math.sin(e.chgA) * step; e.chgD += step;
+    if (Math.random() < dt * 70) addPart('smoke', e.x - Math.cos(e.chgA) * 44 + rand(-14, 14), e.y - Math.sin(e.chgA) * 44 + rand(-14, 14), -Math.cos(e.chgA) * rand(30, 90) + rand(-30, 30), -Math.sin(e.chgA) * rand(30, 90) + rand(-30, 30), rand(0.35, 0.6), rand(5, 9), '#D9B377');
+    let wall = false;
+    for (let j = 0; j < solidsNear.length && !wall; j++) { const q = solidsNear[j]; if (!q.dead && q.hard && hitSolid(q, e.x, e.y, e.r * 0.9)) { crushProp(q, true); wall = true; } }
+    if (p.alive && hyp(p.x - e.x, p.y - e.y) < e.r + p.r + 2) {   // 撞飞玩家
+      hurtPlayer(34 * dm, e.x - Math.cos(e.chgA) * 20, e.y - Math.sin(e.chgA) * 20);
+      p.kbx += Math.cos(e.chgA) * 520; p.kby += Math.sin(e.chgA) * 520;
+    }
+    if (wall || e.chgD >= 780) {   // 撞上掩体 / 冲到头：眩晕 1 秒
+      e.st = 'stun'; e.stT = 0; e.kx = Math.cos(e.chgA) * 190; e.ky = Math.sin(e.chgA) * 190;
+      if (wall) { addShake(18); hitStop = Math.max(hitStop, 0.05); addWord('CRUNCH!', e.x + Math.cos(e.chgA) * 40, e.y + Math.sin(e.chgA) * 40 - 20, '#FFD23F', 48, null, 0); }
+      else { addShake(9); addWord('SCREECH!', e.x, e.y - e.r - 24, '#F4E9D3', 32, null, 0); }
+      for (let i = 0; i < 8; i++) addPart('smoke', e.x + rand(-20, 20), e.y + rand(-20, 20), rand(-90, 90), rand(-110, -10), rand(0.4, 0.7), rand(5, 9), '#7A6A5A');
+      SFX.boom();
+    }
+    return;
+  }
+  // 巡航：与玩家保持 240px 左右，横向绕行
+  const dx = p.x - e.x, dy = p.y - e.y, d = hyp(dx, dy) || 1, nx = dx / d, ny = dy / d;
+  e.dirT -= dt; if (e.dirT <= 0) { e.dir = -e.dir; e.dirT = rand(2.5, 4.5); }
+  const rad = clamp((d - 240) / 80, -1, 1), sp = (rage ? 125 : 78) * slow;
+  let mx = nx * rad - ny * e.dir * 0.85, my = ny * rad + nx * e.dir * 0.85; const ml = hyp(mx, my) || 1;
+  const k = 1 - Math.exp(-dt * 3);   // 速度平滑：掉头 / 换向时缓缓转过去，而不是瞬间反向（车身朝向也是慢慢转的）
+  e.mvx += (mx / ml * sp - e.mvx) * k; e.mvy += (my / ml * sp - e.mvy) * k;
+  e.x += e.mvx * dt; e.y += e.mvy * dt;
+  e.ang = lerpAng(e.ang, Math.atan2(my, mx), 1 - Math.exp(-dt * 3.5));
+  if (p.alive && d < e.r + p.r + 2) hurtPlayer(18 * dm, e.x, e.y);
+  if (rage && Math.random() < dt * 26) addPart('smoke', e.x - Math.cos(e.ang) * 46 + rand(-10, 10), e.y - Math.sin(e.ang) * 46 + rand(-10, 10), rand(-20, 20), rand(-70, -20), rand(0.5, 0.9), rand(5, 9), Math.random() < 0.6 ? '#2A2420' : '#4A3C32');   // 狂暴：排气管冒黑烟
+  e.mT -= dt; if (e.mT <= 0) { e.mT = rage ? 3.4 : 4.6; carpetMortar(e, rage ? 10 : 6); }
+  e.sT -= dt; if (e.sT <= 0) { e.sT = rage ? 2.5 : 3.3; fanSalvo(e, 5); }
+  if (rage) { e.cT -= dt; if (e.cT <= 0) { e.st = 'aim'; e.stT = 0; e.cT = 5; e.chgA = Math.atan2(p.y - e.y, p.x - e.x); SFX.warn(); } }
+}
+/* 地毯式迫击炮：以玩家（略微预判移动方向）为中心撒 n 个红圈，逐个延迟落地形成滚动弹幕 */
+function carpetMortar(e, n) {
+  const p = player, cx = p.x + clamp(p.mvx, -260, 260) * 0.45, cy = p.y + clamp(p.mvy, -260, 260) * 0.45, pts = [];
+  for (let i = 0, tries = 0; i < n && tries < 240; tries++) {
+    const a = rand(TAU), d = 34 + Math.pow(Math.random(), 0.7) * 190, x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+    let ok = true; for (let j = 0; j < pts.length && ok; j++) if (hyp(pts[j][0] - x, pts[j][1] - y) < 86) ok = false;
+    if (ok) { pts.push([x, y]); warns.push({ x, y, r: 70, t: 1.2 + i * 0.07, max: 1.2 + i * 0.07, dmg: 26 * bossDmg(e) }); i++; }
+  }
+  e.trec = 1; SFX.mortar();
+}
+/* 扇形散弹齐射：朝玩家方向呈扇面打出 5 发慢速高爆炮弹 */
+function fanSalvo(e, n) {
+  const base = Math.atan2(player.y - e.y, player.x - e.x);
+  for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.21; spawnEB('shell', e.x + Math.cos(a) * 42, e.y + Math.sin(a) * 42, a, 265, { r: 8, dmg: 22 * bossDmg(e), life: 2.5 }); }
+  e.trec = 1; addShake(3); SFX.cannon();
+}
+
+/* ====================== Boss 2 W4R-D3N ======================
+   P1：旋转激光十字（1 秒细线预警 → 2 道贯穿屏幕的青色激光顺时针转 3.5 秒）+ 每 8 秒放出 3 台自爆无人机
+   P2：激光变 3 道、每 1.2 秒反转转向；每 3.2 秒放出一圈带两个缺口的环形弹幕 */
+function updateBossWarden(e, dt) {
+  const p = player, rage = e.phase === 2, slow = e.shockSlowTimer > 0 ? 0.7 : 1, dm = bossDmg(e);
+  e.tur = Math.atan2(p.y - e.y, p.x - e.x);   // 独眼盯着玩家
+  if (e.st === 'lwarn') {   // 细线预警：预警线就按正式发射的方向缓慢转动
+    e.lA += e.lDir * e.lSpd * 0.25 * dt;
+    if (e.stT >= 1) { e.st = 'laser'; e.stT = 0; SFX.laser(); }
+  } else if (e.st === 'laser') {
+    if (rage) { e.lRev -= dt; if (e.lRev <= 0) { e.lDir = -e.lDir; e.lRev = 1.2; } }
+    e.lA += e.lDir * e.lSpd * (e.shockSlowTimer > 0 ? 0.85 : 1) * dt;
+    const dx = p.x - e.x, dy = p.y - e.y;
+    for (let i = 0; i < e.nB; i++) {   // 玩家到每条激光（从核心射出的射线）的距离
+      const a = e.lA + i / e.nB * TAU;
+      if (dx * Math.cos(a) + dy * Math.sin(a) > -10 && Math.abs(-dx * Math.sin(a) + dy * Math.cos(a)) < 10 + p.r) { hurtPlayer(24 * dm, e.x, e.y); break; }
+    }
+    if (e.stT >= e.lDur) { e.st = 'move'; e.stT = 0; e.lT = 5.5; }
+  } else {   // 悬浮巡航：与玩家保持 230px 左右
+    const dx = p.x - e.x, dy = p.y - e.y, d = hyp(dx, dy) || 1, nx = dx / d, ny = dy / d;
+    e.dirT -= dt; if (e.dirT <= 0) { e.dir = -e.dir; e.dirT = rand(3, 5); }
+    const rad = clamp((d - 230) / 70, -1, 1), sp = (rage ? 110 : 80) * slow;
+    let mx = nx * rad - ny * e.dir * 0.9, my = ny * rad + nx * e.dir * 0.9; const ml = hyp(mx, my) || 1;
+    const k = 1 - Math.exp(-dt * 3.2);
+    e.mvx += (mx / ml * sp - e.mvx) * k; e.mvy += (my / ml * sp - e.mvy) * k;
+    e.x += e.mvx * dt; e.y += e.mvy * dt;
+    e.ang = lerpAng(e.ang, Math.atan2(dy, dx), 1 - Math.exp(-dt * 3));
+    if (p.alive && d < e.r + p.r + 2) hurtPlayer(18 * dm, e.x, e.y);
+    e.lT -= dt;
+    if (e.lT <= 0) {   // 首条激光从玩家旁侧 0.8 弧度处开始，转向玩家需要约 1.5 秒，留足反应时间
+      e.st = 'lwarn'; e.stT = 0; e.nB = rage ? 3 : 2; e.lSpd = rage ? 0.72 : 0.55; e.lDur = rage ? 4 : 3.5;
+      e.lA = Math.atan2(dy, dx) + 0.8 * e.lDir; e.lRev = 1.2; SFX.warn();
+    }
+  }
+  e.dT -= dt; if (e.dT <= 0) { e.dT = 8; spawnDrones(e, 3); }
+  if (rage) { e.rT -= dt; if (e.rT <= 0) { e.rT = 3.2; ringWave(e); } }
+}
+/* 自爆无人机：场上最多 6 台；沿用自爆矮人的追踪 / 引信 / 爆炸逻辑 */
+function spawnDrones(e, n) {
+  let alive = 0; for (let i = 0; i < enemies.length; i++) if (!enemies[i].dead && enemies[i].drone) alive++;
+  n = Math.min(n, 6 - alive);
+  for (let i = 0; i < n; i++) {
+    const a = i / 3 * TAU + rand(0.6), o = spawnEnemy(1, e.x + Math.cos(a) * 36, e.y + Math.sin(a) * 36, false, true);
+    if (!o) break;
+    o.drone = true; o.r = 9; o.speed = 140 * speedScale(); o.mass = 0.6; o.xp = 2 * (1 + Math.floor(gameTime / 75));
+    for (let j = 0; j < 3; j++) addPart('spark', o.x, o.y, rand(-120, 120), rand(-120, 120), 0.25, 2, '#5FF3FF');
+  }
+  addWord('DEPLOY!', e.x, e.y - e.r - 30, '#35B9FF', 30, 'deploy', 400); SFX.drone();
+}
+/* 环形弹幕波：22 发能量球向四周扩散，两个缺口（各约 2.4 发宽）供穿隙走位 */
+function ringWave(e) {
+  const n = 22, off = rand(TAU), gap = rand(TAU), gw = TAU * 2.4 / n / 2;
+  for (let i = 0; i < n; i++) {
+    const a = off + i / n * TAU;
+    if (Math.abs(wrapA(a - gap)) < gw || Math.abs(wrapA(a - gap - Math.PI)) < gw) continue;
+    spawnEB('orb', e.x + Math.cos(a) * 48, e.y + Math.sin(a) * 48, a, 235, { r: 8, dmg: 14 * bossDmg(e), life: 3.6 });
+  }
+  e.trec = 1; SFX.ring();
+}
+
+/* ====================== Boss 3 血翼变异体 ======================
+   P1：元素扇形吐息（1 秒红色扇形预警 → 喷 1 秒，地面留下 3 秒燃烧 / 酸液区，火焰与酸液交替）+ 3 波追踪羽毛飞刀
+   P2：每 8 秒跃起滞空，红圈准星追踪玩家 1.2 秒后砸地（冲击波环）；首次落地后元素过载，攻击频率 +30% */
+function updateBossWing(e, dt) {
+  const p = player, rage = e.phase === 2, slow = e.shockSlowTimer > 0 ? 0.7 : 1, rate = e.rate, dm = bossDmg(e);
+  e.walk += dt * 7;
+  if (e.st === 'breath') {
+    if (e.stT < 0.45) e.txA = lerpAng(e.txA, Math.atan2(p.y - e.y, p.x - e.x), 1 - Math.exp(-dt * 9));   // 前 0.45 秒扇形跟着玩家转，之后锁定
+    e.ang = lerpAng(e.ang, e.txA, 1 - Math.exp(-dt * 9));
+    if (e.stT >= 1 && !e.fired) { e.fired = true; zones.push({ x: e.x, y: e.y, a: e.txA, half: 0.56, len: 300, t: 0, max: 3, el: e.el, cycle: e.cycle }); SFX.breath(e.el); }   // 开喷
+    if (e.stT >= 2) { e.st = 'move'; e.stT = 0; e.bT = rage ? 4.4 : 5.6; }
+    if (p.alive && hyp(p.x - e.x, p.y - e.y) < e.r + p.r + 2) hurtPlayer(18 * dm, e.x, e.y);
+    return;
+  }
+  if (e.st === 'leap') {   // 跃起滞空：准星追踪 0.95 秒后锁定，1.2 秒砸向锁定点
+    if (e.stT < 0.95) { const k = 1 - Math.exp(-dt * 5.5); e.sx += (p.x - e.sx) * k; e.sy += (p.y - e.sy) * k; }
+    if (e.stT >= 1.2) { e.x = e.sx; e.y = e.sy; e.st = 'move'; e.stT = 0; e.sT = 8; e.fT = Math.max(e.fT, 1.2); e.bT = Math.max(e.bT, 1.6); bossSlam(e); }
+    return;
+  }
+  const dx = p.x - e.x, dy = p.y - e.y, d = hyp(dx, dy) || 1, nx = dx / d, ny = dy / d;
+  e.dirT -= dt; if (e.dirT <= 0) { e.dir = -e.dir; e.dirT = rand(3, 5); }
+  const rad = clamp((d - 250) / 80, -1, 1), sp = (rage ? 130 : 95) * slow;
+  let mx = nx * rad - ny * e.dir * 0.9, my = ny * rad + nx * e.dir * 0.9; const ml = hyp(mx, my) || 1;
+  const k = 1 - Math.exp(-dt * 3.2);
+  e.mvx += (mx / ml * sp - e.mvx) * k; e.mvy += (my / ml * sp - e.mvy) * k;
+  e.x += e.mvx * dt; e.y += e.mvy * dt;
+  e.ang = lerpAng(e.ang, Math.atan2(my, mx), 1 - Math.exp(-dt * 3.5));
+  if (p.alive && d < e.r + p.r + 2) hurtPlayer(18 * dm, e.x, e.y);
+  e.bT -= dt * rate;
+  if (e.bT <= 0) { e.st = 'breath'; e.stT = 0; e.fired = false; e.el = e.el === 'fire' ? 'acid' : 'fire'; e.txA = Math.atan2(dy, dx); SFX.warn(); return; }
+  if (e.fw > 0) { e.fwT -= dt * rate; if (e.fwT <= 0) { featherWave(e, rage ? 7 : 5); e.fw--; e.fwT = 0.36; if (e.fw <= 0) e.fT = 3.6; } }   // 一轮 3 波羽毛
+  else { e.fT -= dt * rate; if (e.fT <= 0) { e.fw = 3; e.fwT = 0; } }
+  if (rage) { e.sT -= dt * rate; if (e.sT <= 0) { e.st = 'leap'; e.stT = 0; e.sx = p.x; e.sy = p.y; SFX.warn(); } }
+}
+function featherWave(e, n) {
+  const base = Math.atan2(player.y - e.y, player.x - e.x);
+  for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.2 + rand(-0.04, 0.04); spawnEB('feather', e.x + Math.cos(a) * 30, e.y + Math.sin(a) * 30, a, 380, { r: 6, dmg: 15 * bossDmg(e), life: 2.6, home: 1.7, homeT: 1.3 }); }
+  SFX.feather();
+}
+function bossSlam(e) {
+  const p = player, dm = bossDmg(e), d = hyp(p.x - e.x, p.y - e.y);
+  if (p.alive && d < 125 + p.r) {   // 砸中：击飞（正中时没有方向，就沿 Boss 自己的朝向轰出去）
+    hurtPlayer(42 * dm * (1 - 0.4 * d / (125 + p.r)), e.x, e.y);
+    const kx = d > 1 ? (p.x - e.x) / d : Math.cos(e.t), ky = d > 1 ? (p.y - e.y) / d : Math.sin(e.t);
+    p.kbx += kx * 520; p.kby += ky * 520;
+  }
+  rings.push({ x: e.x, y: e.y, r: 30, speed: 540, maxR: 470, w: 26, dmg: 20 * dm, hit: false });
+  booms.push({ x: e.x, y: e.y, r: 130, t: 0, max: 0.5, rot: rand(TAU), pts: starPts(12, 0.4), ring: false });
+  for (let i = 0; i < 16; i++) { const a = i / 16 * TAU + rand(-0.2, 0.2), s = rand(180, 460); addPart('chunk', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s - 80, rand(0.5, 0.9), rand(3, 7), pick(['#5E5245', '#94836C', '#3B2A1D']), rand(TAU)); }
+  for (let i = 0; i < 8; i++) addPart('smoke', e.x + rand(-30, 30), e.y + rand(-30, 30), rand(-70, 70), rand(-90, -10), rand(0.5, 0.9), rand(7, 12), '#7A6A5A');
+  addDecal('scorch', e.x, e.y, 110);
+  addShake(15); hitStop = Math.max(hitStop, 0.05);
+  addWord('SLAM!', e.x, e.y - 40, '#FFD23F', 60, null, 0);
+  SFX.slam();
+  if (e.phase === 2 && !e.over) { e.over = true; e.rate = 1.3; addWord('元素过载！', W / 2, H * 0.27, '#8CFF3A', 48, null, 0, true); toast('血翼变异体：元素过载，攻击频率 +30%', '#8CFF3A'); }   // 落地后元素过载
+}
+
+/* ====================== 击杀 Boss：慢动作特写 + 战利品 ======================
+   0.5 秒慢动作 + 强震屏 + 满屏金色 LOOT! / BOSS DEFEATED!，爆出大量高价值晶体和 1 个传奇橙色秘藏宝箱 */
+function killBoss(e) {
+  const D = BOSS_DEFS[e.kind];
+  if (boss === e) boss = null; bossSlow = 0.5; stats.bossKills++;
+  warns.length = 0; ebullets.length = 0; zones.length = 0; rings.length = 0;   // Boss 的遗留攻击随之消散：慢动作里不会再挨打
+  bossNextT = Math.max(bossNextT, gameTime + 90);                              // 打得太久的 Boss：击杀后至少留 90 秒喘息
+  for (let i = 0; i < enemies.length; i++) { const o = enemies[i]; if (o.drone && !o.dead) {   // 召唤出来的无人机随 Boss 一起散架
+    o.dead = true; for (let j = 0; j < 3; j++) addPart('smoke', o.x, o.y, rand(-40, 40), rand(-50, 0), rand(0.3, 0.5), rand(4, 6), '#7A6A5A'); } }
+  for (let i = 0; i < 5; i++) booms.push({ x: e.x + rand(-e.r, e.r) * 0.8, y: e.y + rand(-e.r, e.r) * 0.8, r: rand(55, 100), t: 0, max: 0.45, rot: rand(TAU), pts: starPts(11, 0.42), ring: false, delay: i * 0.05 });   // 爆炸收得快一点：别长时间盖住刚掉落的战利品
+  booms.push({ x: e.x, y: e.y, r: 380, t: 0, max: 0.7, rot: 0, pts: null, ring: true, c1: '#FFD23F', c2: '#FFF6A0', delay: 0.05 });
+  const cols = bossCols(e);
+  for (let i = 0; i < 28; i++) { const a = rand(TAU), s = rand(120, 520); addPart('chunk', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s - 80, rand(0.6, 1.1), rand(3, 8), pick(cols), rand(TAU)); }
+  for (let i = 0; i < 14; i++) addPart('smoke', e.x + rand(-30, 30), e.y + rand(-30, 30), rand(-120, 120), rand(-160, -20), rand(0.7, 1.2), rand(9, 15), i % 2 ? '#2A2420' : '#4A3C32');
+  for (let i = 0; i < 30; i++) { const a = rand(TAU), s = rand(220, 640); addPart('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.3, 0.7), 2.8, i % 2 ? '#FFD23F' : '#FF8C00'); }
+  addDecal('scorch', e.x, e.y, 150);
+  addShake(26); whiteFlash = 0.9;
+  addWord('BOSS DEFEATED!', W / 2, H * 0.24, '#FFD23F', 68, null, 0, true);
+  for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.35; addWord('LOOT!', W / 2 + Math.cos(a) * W * 0.31, H * 0.64 + Math.sin(a) * H * 0.26, '#FFD23F', rand(46, 64), null, 0, true); }   // 满屏金色 LOOT!：绕着画面中心均匀排开，不压标题
+  toast('击败 ' + D.name + ' · 拾取秘藏宝箱领取奖励', '#FFD23F');
+  const gems = [18, 24, 30][e.kind] + 10 * e.cycle;   // 战利品：一圈橙色高价值晶体
+  for (let i = 0; i < gems; i++) { const a = i / gems * TAU + rand(-0.2, 0.2), s = rand(260, 640); drops.push({ type: 'xp', x: e.x, y: e.y, v: 20, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: rand(TAU), sp: 0, mag: false, tier: 2, dk: 4, seed: rand(TAU) }); xpCount++; }
+  { const dx = player.x - e.x, dy = player.y - e.y, d = hyp(dx, dy) || 1; drops.push({ type: 'vault', x: e.x + dx / d * 74, y: e.y + dy / d * 74, vx: 0, vy: 0, t: 0, sp: 0, mag: false, tier: 0, dk: 4, seed: rand(TAU) }); }   // 传奇橙色秘藏宝箱：朝玩家方向探出 74px，从爆炸烟尘里露出来
+  SFX.bossDie();
+}
+/* 触碰秘藏宝箱：回 30% 生命，立刻免费触发一次"必出传奇橙 / 稀有蓝"的三选一（不消耗经验），并恢复正常刷怪 */
+function openVaultChest() {
+  vaultPending = false;
+  whiteFlash = 0.7; addShake(6); SFX.loot(); SFX.vault();
+  addWord('LOOT!', player.x, player.y - 46, '#FFD23F', 56, null, 0);
+  for (let i = 0; i < 22; i++) { const a = rand(TAU), s = rand(140, 420); addPart('spark', player.x, player.y - 10, Math.cos(a) * s, Math.sin(a) * s, rand(0.35, 0.7), 3, i % 2 ? '#FFD23F' : '#FF8C00'); }
+  heal(Math.round(player.hpMax * 0.3));
+  nextWaveT = Math.max(nextWaveT, gameTime + 10);   // 恢复刷怪，但留 10 秒喘息
+  openLevelUp(true);
+}
+
+/* ============================================================
    掉落物：经验晶体 / 回血包 / 武器箱
    ============================================================ */
 function tierOf(v) { return v >= 20 ? 2 : v >= 3 ? 1 : 0; }
@@ -1393,6 +1838,7 @@ function collect(d) {
   if (d.type === 'xp' && UPS.bloodlust.lvl) player.bloodT = 0;
   else if (d.type === 'hp') heal(Math.round(player.hpMax * 0.35));
   else if (d.type === 'chest') openChest();
+  else if (d.type === 'vault') openVaultChest();
 }
 function openChest() {
   const avail = Object.keys(UPS).filter(k => !maxedOut(UPS[k]));
@@ -1411,12 +1857,12 @@ function updateEnemies(dt) {
     if (e.flash > 0) e.flash -= dt;
     if (e.spawnT > 0) e.spawnT -= dt;
     if (e.shockSlowTimer > 0) e.shockSlowTimer -= dt;
-    if (e.corrosiveTimer > 0) { e.corrosiveTimer -= dt; if (Math.random() < dt * 7) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-14, 14), rand(20, 50), rand(0.45, 0.7), rand(2, 3.4) * e.scale, '#8CFF3A'); }   // 腐蚀：往下滴的荧光绿气泡
-    if (e.slagTimer > 0) { e.slagTimer -= dt; if (Math.random() < dt * 3) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), rand(20, 44), rand(0.45, 0.7), rand(2, 3.2) * e.scale, '#C44DFF'); }
+    if (e.corrosiveTimer > 0) { e.corrosiveTimer -= dt; if (Math.random() < dt * 7) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-14, 14), rand(20, 50), rand(0.45, 0.7), rand(2, 3.4) * (e.boss ? 2.6 : e.scale), '#8CFF3A'); }   // 腐蚀：往下滴的荧光绿气泡
+    if (e.slagTimer > 0) { e.slagTimer -= dt; if (Math.random() < dt * 3) addPart('acid', e.x + rand(-e.r, e.r) * 0.7, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), rand(20, 44), rand(0.45, 0.7), rand(2, 3.2) * (e.boss ? 2.6 : e.scale), '#C44DFF'); }
     // 燃烧：按 0.4s 结算一次持续伤害；身上不断窜出火苗和火星（粒子太多时降低火苗频率）
     if (e.burnTimer > 0) {
       e.burnTimer -= dt; e.burnAcc += e.burnDps * dt; e.burnTick -= dt;
-      const bsc = e.scale * spawnScale(e);
+      const bsc = e.boss ? 2.4 : e.scale * spawnScale(e);   // Boss 体形大：火苗按体形放大
       if (Math.random() < dt * (parts.length > 260 ? 5 : 14)) addFlame(e.x + rand(-e.r, e.r) * 0.7 * bsc, e.y + rand(-e.r, e.r) * 0.5, rand(-12, 12), -rand(30, 60), rand(0.35, 0.6), rand(3.5, 6) * bsc);
       if (Math.random() < dt * 3) addPart('spark', e.x + rand(-e.r, e.r) * 0.6, e.y, rand(-30, 30), -rand(50, 110), rand(0.25, 0.45), 1.6, '#FFD23F');
       if (e.burnTick <= 0) {
@@ -1425,6 +1871,7 @@ function updateEnemies(dt) {
         if (e.dead) continue;
       }
     }
+    if (e.boss) { updateBoss(e, dt); continue; }   // 关底 Boss：独立的状态机（状态计时与灼烧跳伤在上面已经处理过）
     let dx = p.x - e.x, dy = p.y - e.y; const d = hyp(dx, dy) || 1; dx /= d; dy /= d;
     let sp = e.speed * (e.shockSlowTimer > 0 ? 0.4 : 1);   // 被电到：减速 60%
     if (e.type === 1) {
@@ -1435,7 +1882,7 @@ function updateEnemies(dt) {
     }
     let mx = dx, my = dy;
     if (e.wob) { const w = Math.sin(gameTime * e.wobF + e.wobP) * e.wob; mx = dx - dy * w; my = dy + dx * w; }
-    if (boxCount && steerBox(e)) { mx = STEER[0]; my = STEER[1]; }   // 直线去玩家的路被集装箱挡住：贴着箱面绕行
+    if (boxCount && !e.drone && steerBox(e)) { mx = STEER[0]; my = STEER[1]; }   // 直线去玩家的路被集装箱挡住：贴着箱面绕行
     e.x += (mx * sp + e.kx) * dt; e.y += (my * sp + e.ky) * dt;
     e.kx *= kf; e.ky *= kf;
     e.ang = lerpAng(e.ang, Math.atan2(dy, dx), dt * 9);
@@ -1449,7 +1896,7 @@ function updateEnemies(dt) {
     // 被远远甩开的敌人：3 秒后重新绕到屏幕边缘，保持包围压力
     if (d > 1500) { e.awayT += dt; if (e.awayT > 3) { const q = edgePos(50); e.x = q[0]; e.y = q[1]; e.awayT = 0; } } else e.awayT = 0;
   }
-  if (solidsNear.length) for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (!e.dead) resolveSolids(e, true); }
+  if (solidsNear.length) for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (!e.dead && !e.boss && !e.drone) resolveSolids(e, true); }   // Boss 会碾碎掩体、无人机飞在空中：都不参与推出
 }
 
 /* 敌人间软分离（基于网格，重装兵质量大，推开小兵） */
@@ -1545,14 +1992,16 @@ function updateDrops(dt) {
     d.x += d.vx * dt; d.y += d.vy * dt; d.vx *= fr; d.vy *= fr;
     if (!p.alive) continue;
     const dx = p.x - d.x, dy = p.y - d.y, dd = hyp(dx, dy) || 1;
-    if (!d.mag && dd < p.magnetR * (d.type === 'xp' ? 1 : 1.3)) d.mag = true;   // 进入磁吸范围
+    if (d.type === 'vault' && d.t < 1) continue;   // 秘藏宝箱落地后 1 秒内不可拾取：让击杀慢动作和满屏 LOOT! 播完
+    if (d.type === 'vault' && d.t > 1.4) d.mag = true;   // 1.4 秒后主动飞向玩家，奖励不会漏拾
+    if (!d.mag && dd < (d.type === 'vault' ? 240 : p.magnetR * (d.type === 'xp' ? 1 : 1.3))) d.mag = true;   // 进入磁吸范围
     if (d.mag) { d.sp = Math.min(1600, d.sp + 3400 * dt); d.x += dx / dd * d.sp * dt; d.y += dy / dd * d.sp * dt; }
     if (dd < p.r + 12) { collect(d); drops.splice(i, 1); }
   }
 }
 
 function sweepEnemies() {
-  for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i].dead) { const e = enemies[i]; enemies[i] = enemies[enemies.length - 1]; enemies.pop(); enemyPool.push(e); }
+  for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i].dead) { const e = enemies[i]; enemies[i] = enemies[enemies.length - 1]; enemies.pop(); if (!e.boss) enemyPool.push(e); }   // Boss 的对象不回收：它带着整套专属字段
 }
 
 /* ============================================================
@@ -1571,24 +2020,30 @@ function makeCard(key) {
     isNew: !ex && !u.lvl, fill: ex ? 1 : clamp(u.val / u.cap, 0, 1), lvl: ex ? 0 : u.lvl,
     rot: 0, hover: 0, wasHover: false, x: -9999, y: -9999, w: 0, h: 0 };
 }
-function openLevelUp() {
-  const pool = Object.keys(UPS).filter(k => !maxedOut(UPS[k]));
+function openLevelUp(vault) {
+  vaultMode = !!vault;
+  const all = Object.keys(UPS).filter(k => !maxedOut(UPS[k]));
   cards = [];
   const rots = [-0.07, 0.015, 0.075];
   const wgt = k => TIER[UPS[k].tier].w * (UPS[k].lvl === 0 ? 1.35 : 1);   // 没拿过的卡更容易出现；传奇卡更稀有
-  while (cards.length < 3 && pool.length) {
-    let tot = 0; for (const k of pool) tot += wgt(k);
-    let r = Math.random() * tot, idx = 0;
-    for (; idx < pool.length; idx++) { r -= wgt(pool[idx]); if (r <= 0) break; }
-    idx = Math.min(idx, pool.length - 1);
-    const key = pool.splice(idx, 1)[0], c = makeCard(key);
-    c.rot = rots[cards.length]; cards.push(c);
-  }
+  const draw = pool => { let tot = 0; for (const k of pool) tot += wgt(k); let r = Math.random() * tot, idx = 0; for (; idx < pool.length; idx++) { r -= wgt(pool[idx]); if (r <= 0) break; } return Math.min(idx, pool.length - 1); };
+  const take = (pool, i) => { const c = makeCard(pool.splice(i, 1)[0]); c.rot = rots[cards.length]; cards.push(c); };
+  if (vault) {   // 秘藏宝箱：只出元素 / 厂牌（蓝）与传奇（橙），并且必出 1 张传奇
+    let pool = all.filter(k => UPS[k].tier >= 1);
+    const leg = pool.filter(k => UPS[k].tier === 2);
+    if (leg.length) { const k = leg[draw(leg)]; pool.splice(pool.indexOf(k), 1); take([k], 0); }
+    while (cards.length < 3 && pool.length) take(pool, draw(pool));
+    while (cards.length < 3) {   // 稀有卡全部满级了，才用基础卡补位
+      const rest = all.filter(k => UPS[k].tier === 0 && !cards.some(c => c.key === k));
+      if (!rest.length) break;
+      take(rest, draw(rest));
+    }
+  } else while (cards.length < 3 && all.length) take(all, draw(all));
   const fb = ['heal', 'nuke', 'frenzy'];   // 全部满级后的补给卡
   for (let i = 0; i < fb.length && cards.length < 3; i++) { const c = makeCard(fb[i]); c.rot = rots[cards.length]; cards.push(c); }
   state = ST.LEVEL; levelT = 0; picking = null; uiRects.skip = null;
   for (let i = words.length - 1; i >= 0; i--) if (words[i].screen) poolKill(words, wordPool, i);   // 连续升级时只保留一个 LEVEL UP!
-  addWord('LEVEL UP!', W / 2 + 268, 88, '#5FF3FF', 40, null, 0, true);
+  addWord(vaultMode ? 'VAULT LOOT!' : 'LEVEL UP!', W / 2 + 268, 88, vaultMode ? '#FF8C00' : '#5FF3FF', 40, null, 0, true);
   SFX.levelup();
 }
 function levelUp() {
@@ -1610,12 +2065,13 @@ function shockwave() {
 /* i: 0-2 选卡，3 跳过 */
 function chooseCard(i) {
   if (state !== ST.LEVEL || picking) return;
-  if (i === 3 || i >= cards.length) { picking = { i: 3, t: 0 }; return; }
-  picking = { i, t: 0 };
+  if (i === 3 || i >= cards.length) { if (vaultMode) return; picking = { i: 3, t: 0 }; return; }   // 宝箱强化是必选的奖励，不能跳过
+  picking = { i, t: 0, vault: vaultMode };
   SFX.select();
 }
 function resolvePick() {
-  const i = picking.i; picking = null;
+  const i = picking.i, vault = !!picking.vault; picking = null;
+  vaultMode = false;
   if (i === 3) { heal(20); toast('跳过：回复 20 生命', '#F4E9D3'); }
   else {
     const c = cards[i];
@@ -1624,6 +2080,7 @@ function resolvePick() {
     else if (c.key === 'frenzy') player.frenzyT = 15;
     else applyUpgrade(c.key);
   }
+  if (vault) { state = ST.PLAY; player.iframes = Math.max(player.iframes, 0.8); return; }   // 宝箱强化不消耗经验等级
   pendingLevels--;
   if (pendingLevels > 0) openLevelUp();
   else { state = ST.PLAY; player.iframes = Math.max(player.iframes, 0.5); }
@@ -1639,11 +2096,12 @@ function startGame() {
   Snd.unlock();
   for (const k in UPS) { UPS[k].val = 0; UPS[k].lvl = 0; }
   player = newPlayer();
-  stats = { kills: 0, damage: 0, crits: 0, maxCrit: 0, dmgTaken: 0, xp: 0, dashes: 0, dmgBy: {} };   // dmgBy：按伤害来源记账（结算界面的伤害占比）
-  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, zaps, tracers, throws, ghosts, decals, toasts, solidsNear].forEach(a => { a.length = 0; });
+  stats = { kills: 0, damage: 0, crits: 0, maxCrit: 0, dmgTaken: 0, xp: 0, dashes: 0, bossKills: 0, dmgBy: {} };   // dmgBy：按伤害来源记账（结算界面的伤害占比）
+  [enemies, enemyPool, bullets, bulletPool, parts, partPool, texts, textPool, words, wordPool, drops, fuses, booms, bolts, zaps, tracers, throws, ghosts, decals, toasts, solidsNear, ebullets, warns, zones, rings].forEach(a => { a.length = 0; });
   chunks.clear(); deadBarrels.clear();
   gameTime = 0; spawnT = 1.4; nextWaveT = 40; waveN = 0; nextBossT = 100; pendingLevels = 0; picking = null; hitStop = 0;
   hurtFlash = 0; whiteFlash = 0; speedT = 0; hintT = 14; xpCount = 0; banner = null;
+  boss = null; bossN = 0; bossNextT = 180; bossIntro = 0; bossSlow = 0; vaultPending = false; vaultMode = false;
   cam.x = player.x; cam.y = player.y; cam.shake = 0;
   gun = weaponStats(0); state = ST.PLAY; uiRects.skip = null;
   Music.start();
@@ -1655,6 +2113,7 @@ function handleKey(code) {
   if (code === 'Backquote') { debug = !debug; return; }
   if (state === ST.START) { if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space') startGame(); return; }
   if (state === ST.PLAY) {
+    if (bossIntro > 0 && code !== 'KeyP' && code !== 'Escape') return;   // Boss 定格出场期间除了暂停不能操作
     if (code === 'Space' || code === 'ShiftLeft' || code === 'ShiftRight') tryDash();
     else if (code === 'KeyR') startReload(true);
     else if (code === 'KeyP' || code === 'Escape') setPause(true);
@@ -1668,7 +2127,7 @@ function handleKey(code) {
 
 function handleClick() {
   const mx = mouse.x, my = mouse.y;
-  if (ptInRect(mx, my, uiRects.mute)) { toggleMute(); return; }
+  if (ptInRect(mx, my, muteRect())) { toggleMute(); return; }
   if (state === ST.START) { if (ptInRect(mx, my, uiRects.start)) startGame(); return; }
   if (state === ST.LEVEL) {
     if (picking) return;
@@ -2101,10 +2560,16 @@ function buildPickupSprites() {
     rr(g, -5, -8, 10, 9, 2); g.fill(); g.stroke();
     PICK_SPR.chest = s;
   }
+  { // 秘藏宝箱的橙色光晕
+    const r = 96, S = r * 2, cv = mkCanvas(S * 2, S * 2), g = cv.getContext('2d'), gr = g.createRadialGradient(S, S, 0, S, S, S);
+    gr.addColorStop(0, 'rgba(255,200,60,0.55)'); gr.addColorStop(0.5, 'rgba(255,140,0,0.22)'); gr.addColorStop(1, 'rgba(255,140,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, S * 2, S * 2); PICK_SPR.vaultGlow = { cv, r };
+  }
 }
 function drawDrop(d) {
   if (d.type === 'xp') blit(PICK_SPR.gem[d.tier] || PICK_SPR.gem[0], d.x, d.y, (1 + Math.sin(uiT * 6 + d.seed) * 0.1) * (1 + d.tier * 0.16));
   else if (d.type === 'hp') blit(PICK_SPR.hp, d.x, d.y + Math.sin(uiT * 5 + d.seed) * 2, 1);
+  else if (d.type === 'vault') drawVaultChest(d);
   else {
     const bob = Math.sin(uiT * 4 + d.seed) * 2, k = 0.5 + Math.sin(uiT * 6) * 0.5;
     ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 3; ctx.globalAlpha = 0.4 + k * 0.5; ctx.beginPath();
@@ -2171,7 +2636,7 @@ function buildStaticSprites() {
   buildDecalSprites(); buildPickupSprites(); buildBulletSprites(); buildPropSprites(); buildMuzzleSprites();
   buildGhostSprites();
   // 粒子 / 残影用到的全部颜色在启动时预生成，运行中不再新建画布
-  for (const c of ['#4A3C32', '#7A6A5A', '#D9B377']) smokeSprite(c);
+  for (const c of ['#4A3C32', '#7A6A5A', '#D9B377', '#2A2420']) smokeSprite(c);
   bubbleSprite('#8CFF3A'); bubbleSprite('#C44DFF');
   for (const c of ['#C0281F', '#8F1510', '#E9CDA6', '#7B828A', '#E9A21B', '#F2C9A0', '#8C3B1E']) chunkSprite(c);
   for (let v = 0; v < 3; v++) flameSprite(v);   // 火苗三种变体
@@ -2543,6 +3008,8 @@ function enemyBlit(e, T, A, k, ph, jx, jy, alpha) {
   if (alpha < 1) ctx.globalAlpha = 1;
 }
 function drawEnemy(e) {
+  if (e.boss) { drawBoss(e); return; }
+  if (e.drone) { drawDroneE(e); return; }
   const T = SPR.types[e.type], n = SPR.n, k = ((Math.round(e.ang / TAU * n) % n) + n) % n;
   const two = T.phases.length > 1, ph = two && Math.sin(e.walk) < 0 ? 1 : 0;
   let A = T.phases[ph], jx = 0, jy = 0;
@@ -2562,6 +3029,8 @@ function drawEnemy(e) {
 }
 /* 殊死一搏：黑白世界里只有敌人保留红色高亮（在褪色后的画面上再叠一层红色剪影） */
 function drawEnemyRed(e) {
+  if (e.boss) { ctx.save(); ctx.globalAlpha = 0.9; bossXf(e, 0, 0); BOSS_DRAW[e.kind](ctx, e, '#FF2A1E'); ctx.restore(); return; }
+  if (e.drone) { ctx.save(); ctx.globalAlpha = 0.9; ctx.translate(e.x, e.y - 7); drawDrone(ctx, e, '#FF2A1E'); ctx.restore(); return; }
   const T = SPR.types[e.type], n = SPR.n, k = ((Math.round(e.ang / TAU * n) % n) + n) % n;
   enemyBlit(e, T, T.red[T.phases.length > 1 && Math.sin(e.walk) < 0 ? 1 : 0], k, 0, 0, 0, 0.9);
 }
@@ -2570,7 +3039,7 @@ function drawEnemyRed(e) {
 function drawEnemyShadows() {
   ctx.fillStyle = 'rgba(30,15,5,0.28)'; ctx.beginPath();
   for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i]; if (!e.vis) continue;
+    const e = enemies[i]; if (!e.vis || e.boss || e.drone) continue;
     const r = (e.type === 2 ? 24 : e.type === 0 ? 12 : 9) * e.scale * spawnScale(e);
     ctx.moveTo(e.x + r, e.y + 5); ctx.ellipse(e.x, e.y + 5, r, r * 0.5, 0, 0, TAU);
   }
@@ -2616,7 +3085,7 @@ function bangSprite() {
 /* 顶层标记：自爆预警 "!"、坦克血条、战损裂纹、BADASS 标签 */
 function drawEnemyOverlays() {
   for (let i = 0; i < enemies.length; i++) {
-    const e = enemies[i]; if (e.dead || !e.vis) continue;
+    const e = enemies[i]; if (e.dead || !e.vis || e.boss) continue;
     const top = e.y - e.r - 13;
     if (e.type === 1 && e.arming) blit(bangSprite(), e.x, top - 9 + Math.sin(uiT * 18) * 3, 1);
     if ((e.type === 2 || e.elite) && e.hp < e.hpMax) barW(e.x - (e.elite ? 32 : 22), top - 4, e.elite ? 64 : 44, 7, e.hp / e.hpMax, e.elite ? '#FF9A1F' : '#E8452C');
@@ -2797,6 +3266,354 @@ function drawZaps() {
   }
 }
 
+/* ============================================================
+   Boss / 自爆无人机的矢量画法（粗黑描边 + 平涂 + 暗面排线）
+   都以中心为原点，调用前已按朝向旋转；sil 为剪影色（受击闪白 / 状态叠色 / 殊死一搏的红），为空则正常上色
+   ============================================================ */
+/* Boss 1 布姆·博姆：废土装甲车（车头朝 +x）。四只轮子 + 铆钉装甲车身 + 引擎盖骷髅涂装 + 车尾排气管 + 独立转向的巨型迫击炮 */
+function drawBossCar(g, e, sil) {
+  const F = c => sil || c, S = () => sil || '#000', rage = e.phase === 2;
+  g.save(); g.rotate(e.ang);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.fillStyle = F('#1E1B18'); g.strokeStyle = S(); g.lineWidth = 3.5;   // 轮子
+  for (const wx of [-26, 26]) for (const wy of [-33, 33]) { rr(g, wx - 13, wy - 8, 26, 16, 5); g.fill(); g.stroke(); }
+  if (!sil) { g.fillStyle = '#6B5A48'; for (const wx of [-26, 26]) for (const wy of [-33, 33]) { rr(g, wx - 5, wy - 3, 10, 6, 1.5); g.fill(); } }
+  const body = () => { g.beginPath(); g.moveTo(-40, -28); g.lineTo(28, -28); g.quadraticCurveTo(48, -28, 48, -14); g.lineTo(48, 14); g.quadraticCurveTo(48, 28, 28, 28); g.lineTo(-40, 28); g.quadraticCurveTo(-50, 28, -50, 18); g.lineTo(-50, -18); g.quadraticCurveTo(-50, -28, -40, -28); g.closePath(); };
+  body(); g.fillStyle = F('#B5452A'); g.fill();   // 车身
+  if (!sil) {
+    g.save(); body(); g.clip();
+    g.fillStyle = '#7C2A16'; g.fillRect(-52, 10, 104, 20);
+    g.strokeStyle = '#111'; g.lineWidth = 1.3; g.beginPath(); for (let i = 0; i < 5; i++) { g.moveTo(-40 + i * 9, 28); g.lineTo(-32 + i * 9, 12); } g.stroke();   // 暗面排线
+    g.fillStyle = '#D9713F'; g.fillRect(-48, -28, 94, 5);                                                   // 上沿亮带
+    g.strokeStyle = '#111'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-20, -27); g.lineTo(-20, 27); g.moveTo(4, -27); g.lineTo(4, 27); g.stroke();   // 装甲板缝
+    g.fillStyle = '#4A2316'; for (const rx of [-38, -27, -9, 12, 40]) for (const ry of [-22, 22]) { circ(g, rx, ry, 1.7); g.fill(); }   // 铆钉
+    if (rage) {   // 狂暴：外壳炸裂——引擎盖掀开一块，露出黑漆漆的机舱和跳动的火光
+      polyPath(g, [[10, -24], [34, -18], [44, -4], [36, 10], [14, 16], [4, 2]], 0, 0); g.fillStyle = '#1A1210'; g.fill();
+      g.strokeStyle = '#111'; g.lineWidth = 2.4; g.beginPath();
+      g.moveTo(34, -18); g.lineTo(46, -24); g.moveTo(36, 10); g.lineTo(47, 18); g.moveTo(10, -24); g.lineTo(2, -27); g.moveTo(-30, -20); g.lineTo(-18, -6); g.lineTo(-28, 8); g.stroke();
+      g.fillStyle = '#FF7A1A'; circ(g, 26, -4, 5 + Math.sin(uiT * 18) * 1.5); g.fill();
+    } else {
+      g.fillStyle = '#D9713F'; rr(g, 16, -21, 27, 42, 5); g.fill(); g.lineWidth = 2; g.strokeStyle = '#111'; g.stroke();   // 引擎盖钢板
+      drawIcon('skull', 29, 0, 9.5, '#F4F1E8', g);                                                                            // 骷髅涂装
+    }
+    g.restore();
+  }
+  body(); g.lineWidth = 4; g.strokeStyle = S(); g.stroke();
+  for (const ly of [-19, 19]) { circ(g, 45, ly, 4); g.fillStyle = F(rage ? '#FF3B2E' : '#FFF6A0'); g.fill(); g.lineWidth = 2.2; g.strokeStyle = S(); g.stroke(); }   // 前灯
+  for (const py of [-11, 11]) {   // 车尾排气管
+    circ(g, -50, py, 5); g.fillStyle = F('#7B828A'); g.fill(); g.lineWidth = 2.6; g.strokeStyle = S(); g.stroke();
+    if (!sil) { circ(g, -50, py, 2.2); g.fillStyle = '#111'; g.fill(); }
+  }
+  circ(g, -12, 0, 15); g.fillStyle = F('#5E656D'); g.fill(); g.lineWidth = 3.5; g.strokeStyle = S(); g.stroke();   // 炮塔
+  if (!sil) { circ(g, -12, 0, 9); g.fillStyle = '#7B828A'; g.fill(); }
+  g.save(); g.rotate(e.tur - e.ang); g.translate(-e.trec * 7, 0);                                                  // 迫击炮：独立追踪 + 开炮后坐
+  g.fillStyle = F('#33363D'); rr(g, -8, -6.5, 44, 13, 3); g.fill(); g.lineWidth = 3.2; g.strokeStyle = S(); g.stroke();
+  g.fillStyle = F('#4A4E57'); rr(g, 30, -8.5, 8, 17, 2); g.fill(); g.stroke();                                     // 炮口套环
+  if (!sil) {
+    g.fillStyle = '#FFD23F'; g.fillRect(4, -6.5, 5, 13); g.fillRect(18, -6.5, 5, 13);                              // 黄色警示环带
+    g.lineWidth = 1.6; g.strokeStyle = '#111'; g.strokeRect(4, -6.5, 5, 13); g.strokeRect(18, -6.5, 5, 13);
+  }
+  g.restore();
+  g.restore();
+}
+
+/* Boss 2 W4R-D3N：悬浮的亥伯龙独眼机器人（正面朝 +x）。奶白机身 + 黄色侧舱 + 推进器蓝焰 + 四条关节爪臂 + 独眼（瞳孔盯着玩家）*/
+function drawBossWarden(g, e, sil) {
+  const F = c => sil || c, S = () => sil || '#000', rage = e.phase === 2, t = uiT;
+  g.save(); g.rotate(e.ang);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  if (!sil) for (const sy of [-29, 29]) {   // 推进器蓝焰
+    g.fillStyle = 'rgba(95,243,255,0.5)'; g.beginPath(); g.ellipse(0, sy + Math.sign(sy) * 15, 13, 9 + Math.sin(t * 26 + sy) * 2.5, 0, 0, TAU); g.fill();
+    g.fillStyle = '#FFFFFF'; g.beginPath(); g.ellipse(0, sy + Math.sign(sy) * 13, 6, 4.5, 0, 0, TAU); g.fill();
+  }
+  for (const ax of [-18, 12]) for (const as of [-1, 1]) {   // 四条关节爪臂
+    const k = Math.sin(t * 4 + ax) * 0.08, jx = ax + 2, jy = as * 40, hx = ax + (ax < 0 ? -14 : 14) * Math.cos(k), hy = as * (53 + Math.sin(k) * 3);
+    g.strokeStyle = S(); g.lineWidth = 8; g.beginPath(); g.moveTo(ax, as * 24); g.lineTo(jx, jy); g.lineTo(hx, hy); g.stroke();
+    g.strokeStyle = F('#7B828A'); g.lineWidth = 4.5; g.stroke();
+    circ(g, jx, jy, 5); g.fillStyle = F('#FFD23F'); g.fill(); g.lineWidth = 2.4; g.strokeStyle = S(); g.stroke();          // 关节
+    g.fillStyle = F('#33363D'); g.beginPath(); g.moveTo(hx, hy); g.lineTo(hx - 9, hy + as * 12); g.lineTo(hx + 7, hy + as * 8); g.closePath(); g.fill(); g.lineWidth = 2.2; g.stroke();   // 爪尖
+  }
+  for (const sy of [-30, 30]) {   // 黄色侧舱
+    rr(g, -20, sy - 9, 42, 18, 7); g.fillStyle = F('#FFD23F'); g.fill(); g.lineWidth = 3.5; g.strokeStyle = S(); g.stroke();
+    if (!sil) { g.fillStyle = '#B3860B'; g.fillRect(-20, sy + (sy < 0 ? 3 : -9), 42, 6); }
+  }
+  const hull = () => { g.beginPath(); for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + TAU / 16, r = i % 2 ? 29 : 34; const x = Math.cos(a) * r, y = Math.sin(a) * r * 0.92; if (i) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); };
+  hull(); g.fillStyle = F('#F4F1E8'); g.fill();   // 机身
+  if (!sil) { g.save(); hull(); g.clip(); g.fillStyle = '#FFD23F'; g.fillRect(-36, 12, 72, 24); g.fillStyle = '#C9C2B0'; g.fillRect(-36, -36, 14, 72); g.restore(); }
+  hull(); g.lineWidth = 4; g.strokeStyle = S(); g.stroke();
+  if (!sil) { g.fillStyle = '#E8452C'; g.beginPath(); g.moveTo(-17, 0); g.lineTo(-6, -7.5); g.lineTo(-6, 7.5); g.closePath(); g.fill(); g.lineWidth = 1.6; g.strokeStyle = '#111'; g.stroke(); }   // 红色三角徽记
+  g.strokeStyle = S(); g.lineWidth = 4; g.beginPath(); g.moveTo(-26, 0); g.lineTo(-38, 0); g.stroke(); g.strokeStyle = F('#7B828A'); g.lineWidth = 2; g.stroke();   // 天线
+  circ(g, -39, 0, 3.2); g.fillStyle = F(Math.floor(t * 6) % 2 ? '#FF3B2E' : '#7A1810'); g.fill(); g.lineWidth = 1.8; g.strokeStyle = S(); g.stroke();
+  circ(g, 12, 0, 16); g.fillStyle = F('#1A1A1A'); g.fill(); g.lineWidth = 3; g.strokeStyle = S(); g.stroke();   // 独眼
+  circ(g, 13, 0, 10.5); g.fillStyle = F(rage ? '#FF2A1E' : '#FF8A1E'); g.fill();
+  if (!sil) {
+    g.save(); circ(g, 13, 0, 10.5); g.clip();
+    const ea = e.tur - e.ang; circ(g, 13 + Math.cos(ea) * 3.6, Math.sin(ea) * 3.6, 5.2); g.fillStyle = '#111'; g.fill();   // 瞳孔盯着玩家
+    circ(g, 9, -4.5, 2.6); g.fillStyle = '#fff'; g.fill();                                                                   // 高光
+    g.restore();
+  }
+  circ(g, 13, 0, 10.5); g.lineWidth = 2; g.strokeStyle = S(); g.stroke();
+  if (rage && !sil) { g.strokeStyle = '#FF3B2E'; g.lineWidth = 2; g.beginPath(); g.moveTo(-30, -10); g.lineTo(-20, -3); g.lineTo(-28, 9); g.moveTo(-4, -27); g.lineTo(-11, -17); g.stroke(); }   // 狂暴：裂缝透出红光
+  g.restore();
+}
+/* W4R-D3N 的蓝色能量护盾环：12 段旋转的能量弧（黑边 + 蓝 + 白芯），受击时整圈闪白 */
+function drawWardenRing(x, y, flash) {
+  const r = 52, a = uiT * 1.4;
+  ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round';
+  for (let i = 0; i < 12; i++) {
+    const s = a + i / 12 * TAU; ctx.beginPath(); ctx.arc(0, 0, r, s, s + TAU / 12 * 0.62);
+    ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(0,10,30,0.7)'; ctx.stroke();
+    ctx.lineWidth = 5.5; ctx.strokeStyle = flash ? '#FFFFFF' : '#35B9FF'; ctx.stroke();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* Boss 3 血翼变异体：双翼废土变异巨兽（头朝 +x）。蝙蝠式膜翼（粗黑羽翼描边 + 羽骨）+ 暗红躯干 + 尖喙利眼 + 胸口发光元素核心 */
+function drawBossWing(g, e, sil) {
+  const F = c => sil || c, S = () => sil || '#000', rage = e.phase === 2, flap = 0.72 + 0.28 * Math.abs(Math.sin(e.walk));   // 扑翼：翼展随相位收放
+  g.save(); g.rotate(e.ang);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(-16, -5); g.lineTo(-40, -3); g.lineTo(-50, 0); g.lineTo(-40, 3); g.lineTo(-16, 5); g.closePath(); g.fillStyle = F('#5E1A2A'); g.fill(); g.lineWidth = 3.2; g.strokeStyle = S(); g.stroke();   // 尾巴
+  polyPath(g, [[-57, 0], [-45, -7], [-47, 0], [-45, 7]], 0, 0); g.fillStyle = F('#A9323C'); g.fill(); g.lineWidth = 2.4; g.stroke();   // 尾鳍
+  for (const s of [-1, 1]) {   // 双翼
+    g.save(); g.scale(1, s * flap);
+    const wing = [[-8, 12], [-34, 40], [-30, 66], [-4, 62], [18, 70], [36, 50], [46, 26], [16, 13]];
+    polyPath(g, wing, 0, 0); g.fillStyle = F('#7A1F2A'); g.fill();
+    if (!sil) {
+      g.save(); polyPath(g, wing, 0, 0); g.clip();
+      g.fillStyle = '#A9323C'; polyPath(g, [[-8, 12], [-34, 40], [-30, 66], [-4, 62], [-6, 30]], 0, 0); g.fill();   // 前翼膜亮色
+      g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(-40, 46, 90, 30);                                                 // 后缘暗面
+      g.restore();
+    }
+    polyPath(g, wing, 0, 0); g.lineWidth = 4; g.strokeStyle = S(); g.stroke();                                        // 粗黑羽翼描边
+    if (!sil) {
+      g.strokeStyle = '#111'; g.lineWidth = 2.4; g.beginPath();                                                       // 羽骨
+      for (const q of [[-34, 40], [-30, 66], [-4, 62], [18, 70], [36, 50]]) { g.moveTo(-6, 13); g.lineTo(q[0], q[1]); }
+      g.stroke();
+      g.fillStyle = '#F4F1E8'; g.beginPath(); g.moveTo(-8, 12); g.lineTo(-23, 31); g.lineTo(-12, 33); g.closePath(); g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke();   // 翼爪
+    }
+    g.restore();
+  }
+  for (const s of [-1, 1]) { g.strokeStyle = S(); g.lineWidth = 7; g.beginPath(); g.moveTo(4, s * 12); g.lineTo(12, s * 20); g.lineTo(20, s * 21); g.stroke(); g.strokeStyle = F('#C9A26B'); g.lineWidth = 3.6; g.stroke(); }   // 爪子
+  g.beginPath(); g.ellipse(-2, 0, 24, 16, 0, 0, TAU); g.fillStyle = F('#8E2A3A'); g.fill();   // 躯干
+  if (!sil) { g.save(); g.clip(); g.fillStyle = '#C9A26B'; g.beginPath(); g.ellipse(6, 0, 14, 9, 0, 0, TAU); g.fill(); g.restore(); }
+  g.beginPath(); g.ellipse(-2, 0, 24, 16, 0, 0, TAU); g.lineWidth = 4; g.strokeStyle = S(); g.stroke();
+  const acid = e.el === 'acid', pulse = 1 + Math.sin(uiT * (rage ? 16 : 7)) * 0.12;   // 胸口元素核心：火焰橙 / 酸液绿
+  if (!sil) { circ(g, -6, 0, 15 * pulse); g.fillStyle = acid ? 'rgba(140,255,58,0.3)' : 'rgba(255,138,30,0.32)'; g.fill(); }
+  circ(g, -6, 0, 8 * pulse); g.fillStyle = F(acid ? '#8CFF3A' : '#FF8A1E'); g.fill(); g.lineWidth = 2.6; g.strokeStyle = S(); g.stroke();
+  if (!sil && rage) { circ(g, -6, 0, 3.6); g.fillStyle = '#FFFFFF'; g.fill(); }
+  circ(g, 22, 0, 12.5); g.fillStyle = F('#5E1A2A'); g.fill(); g.lineWidth = 3.5; g.strokeStyle = S(); g.stroke();   // 头
+  polyPath(g, [[30, -6], [48, 0], [30, 6]], 0, 0); g.fillStyle = F('#F2C230'); g.fill(); g.lineWidth = 2.6; g.stroke();   // 喙
+  if (!sil) for (const s of [-1, 1]) { circ(g, 25, s * 5.5, 3); g.fillStyle = rage ? '#FF3B2E' : '#FFE23F'; g.fill(); g.lineWidth = 1.6; g.strokeStyle = '#000'; g.stroke(); }
+  for (const s of [-1, 1]) { g.strokeStyle = S(); g.lineWidth = 6; g.beginPath(); g.moveTo(16, s * 9); g.lineTo(10, s * 18); g.stroke(); g.strokeStyle = F('#C9A26B'); g.lineWidth = 3; g.stroke(); }   // 角
+  g.restore();
+}
+
+/* 自爆无人机：四旋翼小飞碟，前端的红色引信灯靠近玩家后急闪 */
+function drawDrone(g, e, sil) {
+  const F = c => sil || c, S = () => sil || '#000', t = uiT;
+  g.save(); g.rotate(e.ang);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {   // 四条旋翼臂 + 高速旋转的桨叶虚影
+    const a = i / 4 * TAU + Math.PI / 4, x = Math.cos(a) * 10, y = Math.sin(a) * 10;
+    g.strokeStyle = S(); g.lineWidth = 5; g.beginPath(); g.moveTo(0, 0); g.lineTo(x, y); g.stroke(); g.strokeStyle = F('#5E656D'); g.lineWidth = 2.4; g.stroke();
+    g.fillStyle = F('#9AA8B6'); g.beginPath(); g.ellipse(x, y, 7.5, 3.2, a + t * 30, 0, TAU); g.fill();
+    if (!sil) { circ(g, x, y, 1.8); g.fillStyle = '#33363D'; g.fill(); }
+  }
+  circ(g, 0, 0, 8.5); g.fillStyle = F('#FFD23F'); g.fill(); g.lineWidth = 2.8; g.strokeStyle = S(); g.stroke();
+  if (!sil) { circ(g, 0, 0, 5); g.fillStyle = '#F4F1E8'; g.fill(); }
+  circ(g, 5.5, 0, 3.2); g.fillStyle = F(e.arming && Math.floor(t * (e.armT > 0.5 ? 22 : 12)) % 2 === 0 ? '#FFFFFF' : '#FF3B2E'); g.fill(); g.lineWidth = 1.8; g.strokeStyle = S(); g.stroke();
+  g.restore();
+}
+
+const BOSS_DRAW = [drawBossCar, drawBossWarden, drawBossWing];
+function bossLift(e) { return (e.kind > 0 ? 9 + Math.sin(uiT * 3.2 + e.t) * 3 : 0) + (e.kind === 2 && e.st === 'leap' ? 34 * clamp(e.stT / 0.25, 0, 1) : 0); }   // 悬浮高度（砸地跃起时升得更高）
+function bossScale(e) { return e.kind === 2 && e.st === 'leap' ? 1 + 0.42 * clamp(e.stT / 0.25, 0, 1) : 1; }
+function bossXf(e, jx, jy) { ctx.translate(e.x + (jx || 0), e.y + (jy || 0) - bossLift(e)); const k = bossScale(e); ctx.scale(k, k); }
+/* Boss 的绘制入口：受击闪白 / 电击抽搐 / 灼烧闪橙 + 常驻状态叠色（腐蚀绿调 / 紫渣盖紫漆），与小兵的规则一致 */
+function drawBoss(e) {
+  let sil = null, jx = 0, jy = 0;
+  if (e.flash > 0) sil = '#FFFFFF';
+  else if (e.shockSlowTimer > 0) { if (Math.floor(uiT * 40) % 2 === 0) sil = '#FFFFFF'; jx = rand(-1.6, 1.6); jy = rand(-1.6, 1.6); }
+  else if (e.burnTimer > 0 && Math.floor(uiT * 9 + e.t) % 4 === 0) sil = '#FF7A1E';
+  if (e.kind === 1) { ctx.save(); bossXf(e, jx, jy); drawWardenRing(0, 0, e.flash > 0); ctx.restore(); }
+  ctx.save(); bossXf(e, jx, jy);
+  BOSS_DRAW[e.kind](ctx, e, sil);
+  if (e.flash <= 0 && e.shockSlowTimer <= 0) {
+    if (e.burnTimer > 0 && sil !== '#FF7A1E') { ctx.globalAlpha = 0.3; BOSS_DRAW[e.kind](ctx, e, '#FF7A1E'); }
+    if (e.corrosiveTimer > 0) { ctx.globalAlpha = Math.floor(uiT * 7 + e.t) % 3 === 0 ? 0.6 : 0.3; BOSS_DRAW[e.kind](ctx, e, '#8CFF3A'); }
+    if (e.slagTimer > 0) { ctx.globalAlpha = 0.55; BOSS_DRAW[e.kind](ctx, e, '#B44CFF'); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  if (e.kind === 0 && e.st === 'stun') {   // 冲锋撞晕：头顶绕圈的小星星
+    ctx.save(); ctx.translate(e.x, e.y - e.r - 18);
+    for (let i = 0; i < 3; i++) {
+      const a = uiT * 7 + i / 3 * TAU; ctx.save(); ctx.translate(Math.cos(a) * 24, Math.sin(a) * 7); ctx.scale(6.5, 6.5);
+      polyPath(ctx, starPts(5, 0.45)); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineWidth = 0.4; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.restore();
+    }
+    txt('DIZZY!', 0, -24, 16, '#FFF6A0', 'center', 4, FONT_IMPACT);
+    ctx.restore();
+  }
+}
+function drawDroneE(e) {
+  let sil = null;
+  if (e.flash > 0) sil = '#FFFFFF';
+  else if (e.arming && Math.floor(uiT * (e.armT > 0.5 ? 22 : 12)) % 2 === 0) sil = '#FF2A1E';   // 引信：红白交替
+  else if (e.shockSlowTimer > 0 && Math.floor(uiT * 40) % 2 === 0) sil = '#FFFFFF';
+  const k = e.scale * spawnScale(e);
+  ctx.save(); ctx.translate(e.x, e.y - 7 - Math.sin(uiT * 6 + e.t) * 2); ctx.scale(k, k); drawDrone(ctx, e, sil); ctx.restore();
+}
+/* Boss 与无人机的地面投影（无人机的更小更远；血翼跃起时影子缩小并拉开距离） */
+function drawBossShadows() {
+  ctx.fillStyle = 'rgba(30,15,5,0.3)'; ctx.beginPath();
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i]; if (e.dead || !e.vis || !(e.boss || e.drone)) continue;
+    const air = e.boss && e.kind === 2 && e.st === 'leap' ? 0.45 : 1, r = (e.boss ? e.r * 0.95 : 9) * air, off = (e.boss ? (e.kind > 0 ? 14 : 6) : 8) + (1 - air) * 14;
+    ctx.moveTo(e.x + r, e.y + off); ctx.ellipse(e.x, e.y + off, r, r * 0.5, 0, 0, TAU);
+  }
+  ctx.fill();
+}
+
+/* ---- 地面预警：一律红色 + 黑粗描边，计时走完才结算伤害 ---- */
+function drawWarns() {   // 迫击炮落点：红环 + 由内向外填充的红色进度，最后 0.25 秒整圈闪白
+  for (let i = 0; i < warns.length; i++) {
+    const w = warns[i], k = clamp(1 - w.t / w.max, 0, 1), hot = w.t < 0.25 && Math.floor(uiT * 20) % 2 === 0;
+    ctx.save(); circ(ctx, w.x, w.y, w.r - 3); ctx.clip();
+    ctx.fillStyle = 'rgba(255,59,46,0.16)'; ctx.fillRect(w.x - w.r, w.y - w.r, w.r * 2, w.r * 2);
+    ctx.fillStyle = hot ? 'rgba(255,246,210,0.55)' : 'rgba(255,59,46,0.5)'; circ(ctx, w.x, w.y, (w.r - 3) * k); ctx.fill();
+    ctx.restore();
+    circ(ctx, w.x, w.y, w.r); ctx.lineWidth = 7; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 3.5; ctx.strokeStyle = hot ? '#FFFFFF' : '#FF3B2E'; ctx.stroke();
+    ctx.lineCap = 'round'; ctx.lineWidth = 4.5; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(w.x - 10, w.y); ctx.lineTo(w.x + 10, w.y); ctx.moveTo(w.x, w.y - 10); ctx.lineTo(w.x, w.y + 10); ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = '#FFF6E5'; ctx.stroke();
+  }
+}
+function conePath(z, shrink) { ctx.beginPath(); ctx.moveTo(z.x, z.y); ctx.arc(z.x, z.y, Math.max(10, z.len + shrink), z.a - z.half + (shrink ? 0.1 : 0), z.a + z.half - (shrink ? 0.1 : 0)); ctx.closePath(); }
+function drawZones() {   // 吐息留下的燃烧（橙）/ 酸液（荧光绿）地面
+  for (let i = 0; i < zones.length; i++) {
+    const z = zones[i], acid = z.el === 'acid', c1 = acid ? '140,255,58' : '255,122,26', c2 = acid ? '233,255,200' : '255,210,63';
+    ctx.save(); ctx.globalAlpha = Math.min(1, z.t / 0.12) * Math.min(1, (z.max - z.t) / 0.4);
+    conePath(z, 0); ctx.fillStyle = 'rgba(' + c1 + ',0.42)'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgb(' + c1 + ')'; ctx.stroke();
+    conePath(z, -34); ctx.fillStyle = 'rgba(' + c2 + ',0.3)'; ctx.fill();
+    ctx.restore();
+  }
+}
+/* Boss 当前动作的地面预警：冲锋的长条红色激光 / 吐息的红色扇形 / 砸地的追踪红圈准星（激光十字的细线预警在 drawBossLaser 里） */
+function drawBossTele(e) {
+  const blink = Math.floor(uiT * 12) % 2 === 0;
+  if (e.kind === 0 && e.st === 'aim') {
+    const L = 780, W2 = e.r * 0.95, k = clamp(e.stT / 0.8, 0, 1);
+    ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.chgA); ctx.lineJoin = 'round';
+    ctx.fillStyle = 'rgba(255,59,46,' + (blink ? 0.36 : 0.2) + ')'; ctx.fillRect(0, -W2, L, W2 * 2);   // 整条警示区
+    ctx.fillStyle = 'rgba(255,59,46,0.55)'; ctx.fillRect(0, -7, L * k, 14);                           // 中线由近及远推进
+    ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.strokeRect(-2, -W2, L + 2, W2 * 2); ctx.lineWidth = 2.2; ctx.strokeStyle = '#FF3B2E'; ctx.strokeRect(-2, -W2, L + 2, W2 * 2);
+    for (let d = 70; d < L * k + 40; d += 74) {   // 一串向前的箭头
+      ctx.beginPath(); ctx.moveTo(d + 18, 0); ctx.lineTo(d, -15); ctx.lineTo(d, 15); ctx.closePath();
+      ctx.fillStyle = blink ? '#FFF6E5' : '#FF3B2E'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#000'; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (e.kind !== 2) return;
+  if (e.st === 'breath' && e.stT < 1) {   // 吐息预警：地面红色扇形
+    ctx.save(); ctx.globalAlpha = blink ? 0.44 : 0.28; conePath({ x: e.x, y: e.y, a: e.txA, half: 0.56, len: 300 }, 0); ctx.fillStyle = '#FF3B2E'; ctx.fill();
+    ctx.globalAlpha = 0.95; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 2.2; ctx.strokeStyle = '#FF3B2E'; ctx.stroke(); ctx.restore();
+  }
+  if (e.st === 'leap') {   // 砸地预警：追踪玩家的红圈准星
+    const k = clamp(e.stT / 1.2, 0, 1), r = lerp(112, 86, k), hot = e.stT > 0.95;
+    ctx.save(); ctx.translate(e.sx, e.sy); ctx.lineCap = 'round';
+    ctx.fillStyle = 'rgba(255,59,46,0.16)'; circ(ctx, 0, 0, r); ctx.fill();
+    ctx.fillStyle = 'rgba(255,59,46,0.5)'; circ(ctx, 0, 0, r * k); ctx.fill();
+    circ(ctx, 0, 0, r); ctx.lineWidth = 6; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 3.5; ctx.strokeStyle = hot && blink ? '#FFFFFF' : '#FF3B2E'; ctx.stroke();
+    ctx.beginPath(); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + uiT * 2; ctx.moveTo(Math.cos(a) * (r + 4), Math.sin(a) * (r + 4)); ctx.lineTo(Math.cos(a) * (r + 18), Math.sin(a) * (r + 18)); }
+    ctx.lineWidth = 3.5; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 1.8; ctx.strokeStyle = '#FFF6E5'; ctx.stroke();
+    ctx.restore();
+  }
+}
+/* W4R-D3N 的旋转激光十字：发射前 1 秒是细线预警（带转向箭头），之后是贯穿屏幕的粗黑描边青色激光（辉光 → 黑描边 → 青 → 白芯） */
+const LASER_LEN = 1600;
+function drawBossLaser(e) {
+  if (e.kind !== 1 || (e.st !== 'lwarn' && e.st !== 'laser')) return;
+  const on = e.st === 'laser', blink = Math.floor(uiT * 14) % 2 === 0;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 0; i < e.nB; i++) {
+    const a = e.lA + i / e.nB * TAU, ex = e.x + Math.cos(a) * LASER_LEN, ey = e.y + Math.sin(a) * LASER_LEN;
+    ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(ex, ey);
+    if (!on) {
+      ctx.globalAlpha = blink ? 0.95 : 0.5; ctx.setLineDash([22, 14]); ctx.lineDashOffset = -uiT * 120;
+      ctx.lineWidth = 7; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.lineWidth = 3; ctx.strokeStyle = '#FFE23F'; ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth = 1.2; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+    } else {
+      ctx.lineWidth = 34 + rand(-3, 3); ctx.strokeStyle = 'rgba(95,243,255,0.22)'; ctx.stroke();
+      ctx.lineWidth = 17; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.lineWidth = 10.5; ctx.strokeStyle = '#5FF3FF'; ctx.stroke();
+      ctx.lineWidth = 3.6; ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  circ(ctx, e.x, e.y, on ? 26 : 16); ctx.fillStyle = on ? 'rgba(255,255,255,0.85)' : 'rgba(255,226,63,0.5)'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();   // 核心亮斑
+  if (!on) for (let i = 0; i < e.nB; i++) {   // 每条预警线旁一个转向箭头：提示激光会往哪边转
+    const r = 96, a1 = e.lDir * 1.15, hx = Math.cos(a1) * r, hy = Math.sin(a1) * r, tx = -Math.sin(a1) * e.lDir, ty = Math.cos(a1) * e.lDir;
+    ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.lA + i / e.nB * TAU);
+    ctx.beginPath(); ctx.arc(0, 0, r, e.lDir * 0.5, a1, e.lDir < 0); ctx.lineWidth = 6; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 3; ctx.strokeStyle = '#FFE23F'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(hx + tx * 13, hy + ty * 13); ctx.lineTo(hx - tx * 5 - ty * 10, hy - ty * 5 + tx * 10); ctx.lineTo(hx - tx * 5 + ty * 10, hy - ty * 5 - tx * 10); ctx.closePath();
+    ctx.fillStyle = '#FFE23F'; ctx.fill(); ctx.lineWidth = 2.2; ctx.strokeStyle = '#000'; ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawRings() {   // 砸地冲击波环：黑边 + 橙 + 米白内圈
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
+    ctx.globalAlpha = clamp((1 - r.r / r.maxR) * 2.5, 0, 1);
+    circ(ctx, r.x, r.y, r.r); ctx.lineWidth = r.w + 8; ctx.strokeStyle = '#000'; ctx.stroke();
+    ctx.lineWidth = r.w; ctx.strokeStyle = '#FF9A1F'; ctx.stroke();
+    ctx.lineWidth = r.w * 0.4; ctx.strokeStyle = '#FFF6D0'; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawEBullets() {   // Boss 弹幕：高爆炮弹（尾焰）/ 能量球 / 羽毛飞刀
+  for (let i = 0; i < ebullets.length; i++) {
+    const b = ebullets[i];
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (b.kind === 'shell') {
+      ctx.beginPath(); ctx.moveTo(-11, -4.2); ctx.lineTo(-30 - rand(0, 8), 0); ctx.lineTo(-11, 4.2); ctx.closePath(); ctx.fillStyle = '#FF8A1E'; ctx.fill(); ctx.lineWidth = 2.4; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-11, -1.8); ctx.lineTo(-21, 0); ctx.lineTo(-11, 1.8); ctx.closePath(); ctx.fillStyle = '#FFF6A0'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-12, -6.5); ctx.lineTo(6, -6.5); ctx.lineTo(14, 0); ctx.lineTo(6, 6.5); ctx.lineTo(-12, 6.5); ctx.closePath(); ctx.fillStyle = '#3B4A2E'; ctx.fill(); ctx.lineWidth = 2.6; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, -6.5); ctx.lineTo(14, 0); ctx.lineTo(6, 6.5); ctx.closePath(); ctx.fillStyle = '#E8452C'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#FFD23F'; ctx.fillRect(-7, -6.5, 4, 13); ctx.lineWidth = 1.2; ctx.strokeStyle = '#111'; ctx.strokeRect(-7, -6.5, 4, 13);
+    } else if (b.kind === 'orb') {
+      circ(ctx, 0, 0, 15 + Math.sin(uiT * 20 + b.seed) * 2); ctx.fillStyle = 'rgba(95,243,255,0.28)'; ctx.fill();
+      circ(ctx, 0, 0, 8); ctx.fillStyle = '#35C8F0'; ctx.fill(); ctx.lineWidth = 2.6; ctx.strokeStyle = '#000'; ctx.stroke();
+      circ(ctx, -1.5, -1.5, 3.4); ctx.fillStyle = '#FFFFFF'; ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.moveTo(18, 0); ctx.quadraticCurveTo(2, -9, -14, -4); ctx.lineTo(-9, 0); ctx.lineTo(-14, 4); ctx.quadraticCurveTo(2, 9, 18, 0); ctx.closePath();
+      ctx.fillStyle = '#8E2FD6'; ctx.fill(); ctx.lineWidth = 2.4; ctx.strokeStyle = '#000'; ctx.stroke();
+      ctx.lineWidth = 1.8; ctx.strokeStyle = '#F3E0FF'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-11, 0); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+/* 传奇橙色秘藏宝箱：橙色光晕 + 旋转的光芒 + 微开的箱盖里透出金光 + 盖上的秘藏符号 */
+function drawVaultChest(d) {
+  const bob = Math.sin(uiT * 4 + d.seed) * 3, k = 0.5 + Math.sin(uiT * 6) * 0.5, x = d.x, y = d.y - 4 + bob;
+  ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  blit(PICK_SPR.vaultGlow, 0, 0, 1 + k * 0.18, 0.75 + k * 0.25);
+  ctx.globalAlpha = 0.45 + k * 0.5; ctx.strokeStyle = '#FFD23F'; ctx.lineWidth = 3; ctx.beginPath();   // 旋转的光芒
+  for (let i = 0; i < 10; i++) { const a = i / 10 * TAU + uiT * 0.7, r0 = 32 + k * 4, r1 = 48 + k * 16; ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#2A1206'; rr(ctx, -22, -21, 44, 13, 4); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();   // 箱口
+  ctx.fillStyle = '#FFF2A8'; rr(ctx, -18, -18, 36, 7, 2); ctx.fill();                                                               // 透出的金光
+  rr(ctx, -23, -10, 46, 30, 5); ctx.fillStyle = '#FF8C00'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();   // 箱身
+  ctx.save(); rr(ctx, -23, -10, 46, 30, 5); ctx.clip(); ctx.fillStyle = '#C25A00'; ctx.fillRect(-23, 9, 46, 11); ctx.restore();
+  rr(ctx, -25, -27 - k * 3, 50, 19, 6); ctx.fillStyle = '#FFA726'; ctx.fill(); ctx.stroke();                                            // 箱盖（随呼吸微开）
+  ctx.fillStyle = '#FFD23F'; ctx.fillRect(-25, -14 - k * 3, 50, 5); ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.strokeRect(-25, -14 - k * 3, 50, 5);
+  drawIcon('vault', 0, -18.5 - k * 3, 7, '#7A3A00');
+  rr(ctx, -6, -5, 12, 14, 2); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineWidth = 2.4; ctx.strokeStyle = '#000'; ctx.stroke();   // 锁扣
+  ctx.restore();
+  txt('秘藏宝箱', x, y - 54, 16, '#FFD23F', 'center', 4);
+}
 /* 冲刺残影：玩家剪影 × 12 个朝向 × 2 种颜色，启动时预生成 */
 const GHOST_SPR = [];
 function buildGhostSprites() {
@@ -3081,9 +3898,9 @@ function weaponSlotSprite(i, active) {
 }
 
 function drawHUD(showTop) {
-  const p = player;
+  const p = player, ts = bossBarOn() ? 56 : 0;   // Boss 战期间：顶部整体下移，让位给 Boss 血条
   // 左上：徽记 + 生命 / 护盾
-  const ax = 20, ay = 20, bx = ax + 72;
+  const ax = 20, ay = 20 + ts, bx = ax + 72;
   blit(cachedSprite('avatar|' + p.alive, () => {
     const s = spriteCtx(31, UI_R()), g = s.g;
     g.fillStyle = '#231A12'; rr(g, -29, -29, 58, 58, 8); g.fill(); g.lineWidth = 4; g.strokeStyle = '#000'; g.stroke();
@@ -3115,16 +3932,20 @@ function drawHUD(showTop) {
   if (st.length) txt(st.join('   ·   '), bx + 18, ay + 110, 12, '#CDB89A', 'left', 3);
   // 顶部中央：等级 / 经验条 / 计时（升级界面时让位给标题）
   if (showTop) {
-    const xw = clamp(W - 660, 150, 520), xx = W / 2 - xw / 2, xy = 18;
+    const xw = clamp(W - 780, 150, 520), xx = W / 2 - xw / 2, xy = 18 + ts;
     txt('LV ' + p.level, xx - 12, xy + 9, 24, '#FFD23F', 'right', 5, FONT_IMPACT);
     bar(xx, xy, xw, 16, p.xp / p.xpNext, '#4FE3FF', '#B5F4FF');
-    comicText(fmtTime(gameTime), W / 2, 62, 34, '#F4E9D3', 6, 4);
+    comicText(fmtTime(gameTime), W / 2, 62 + ts, 34, '#F4E9D3', 6, 4);
+    if (!boss && gameTime >= 60) {   // 下一个 Boss 的倒计时（最后 10 秒变红闪烁）
+      const left = Math.max(0, bossNextT - gameTime);
+      txt('BOSS  ' + fmtTime(left), W / 2, 92 + ts, 14, left < 10 && Math.floor(uiT * 4) % 2 === 0 ? '#FF3B2E' : '#FFB25A', 'center', 4, FONT_IMPACT);
+    }
   }
   // 右上：静音开关 + 击杀数
-  const m = uiRects.mute;
+  const m = muteRect();
   blit(muteButtonSprite(Snd.muted, ptInRect(mouse.x, mouse.y, m)), m.x + 19, m.y + 20);
-  blit(cachedSprite('skull', () => { const s = spriteCtx(14, UI_R()); drawIcon('skull', 0, 0, 12, '#F4F1E8', s.g); return s; }), W - 40, 92);
-  txt(fmtNum(stats.kills), W - 58, 92, 26, '#F4E9D3', 'right', 5, FONT_IMPACT);
+  blit(cachedSprite('skull', () => { const s = spriteCtx(14, UI_R()); drawIcon('skull', 0, 0, 12, '#F4F1E8', s.g); return s; }), W - 40, 92 + ts);
+  txt(fmtNum(stats.kills), W - 58, 92 + ts, 26, '#F4E9D3', 'right', 5, FONT_IMPACT);
   // 左下（自下而上）：武器槽（1 / 2 / 3 或滚轮切换）→ 当前武器名称 + 元素概率 → 弹药 → 已获得升级
   const wi = p.weapon, rl = p.rel[wi] > 0, by = H - 22, et = elemText(gun);
   for (let i = 0; i < 3; i++) blit(weaponSlotSprite(i, i === wi), 56 + i * 78, by - 22 - (i === wi ? 6 : 0));
@@ -3149,7 +3970,7 @@ function drawHUD(showTop) {
   for (let i = 0; i < toasts.length; i++) {
     const t = toasts[i], k = t.life / t.max;
     ctx.globalAlpha = clamp(Math.min((t.max - t.life) / 0.2, k / 0.4), 0, 1);
-    txt(t.text, W - 24, 136 + i * 28, 16, t.col, 'right', 5);
+    txt(t.text, W - 24, 136 + ts + i * 28, 16, t.col, 'right', 5);
   }
   ctx.globalAlpha = 1;
   // 开局操作提示
@@ -3176,14 +3997,147 @@ function drawHUD(showTop) {
     txt(banner.sub, 0, 23, 18, '#F4E9D3', 'center', 4);
     ctx.restore();
   }
+  drawBossBar();
 }
 
+/* 顶部 Boss 血条：贯穿屏幕的斜切平行四边形，3px 纯黑外描边，50% 处一道狂暴分割线，下方列出当前挂着的元素状态。
+   元素状态直接反映在血条上：紫渣 = 亮紫色脉冲外框 · 腐蚀 = 荧光绿 · 灼烧 = 橙红 + 外圈火光 · 电击 = 青色闪烁 */
+function drawBossBar() {
+  const e = boss; if (!e || !bossBarOn()) return;
+  const D = BOSS_DEFS[e.kind], rage = e.phase === 2, f = clamp(e.hp / e.hpMax, 0, 1), gh = clamp(e.hpGhost / e.hpMax, 0, 1);
+  const w = Math.max(240, W - 40), x = (W - w) / 2, h = 26, y = 14, sk = 15, k = easeOut(clamp(e.age / 0.35, 0, 1));
+  const acid = e.corrosiveTimer > 0, burn = e.burnTimer > 0;
+  const col = acid ? '#8CFF3A' : burn ? '#FF7A1E' : rage ? '#FF3B2E' : D.col, colL = acid ? '#E9FFC8' : burn ? '#FFE45C' : rage ? '#FFB4A8' : '#FFF2A8';
+  ctx.save(); ctx.translate(0, (1 - k) * -80);   // 登场后从屏幕上方滑入
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; pgram(ctx, x + 5, y + 5, w, h, sk); ctx.fill();   // 硬投影
+  ctx.save(); pgram(ctx, x, y, w, h, sk); ctx.clip();
+  ctx.fillStyle = '#2B2118'; ctx.fillRect(x - 4, y - 4, w + 8, h + 8);                 // 底槽 + 排线底纹
+  ctx.strokeStyle = 'rgba(244,233,211,0.1)'; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let tx = x - h; tx < x + w + h; tx += 7) { ctx.moveTo(tx, y + h); ctx.lineTo(tx + h, y); }
+  ctx.stroke();
+  const fw = sk + (w - sk) * f, gw = sk + (w - sk) * gh;
+  if (gh > f) { ctx.fillStyle = '#FFF6E5'; ctx.fillRect(x + fw - 1, y, gw - fw + 1, h); }   // 掉血残影
+  if (fw > 0.5) {
+    ctx.fillStyle = col; ctx.fillRect(x - 2, y, fw + 2, h);
+    ctx.fillStyle = colL; ctx.fillRect(x - 2, y, fw + 2, 9);                                  // 顶部亮带
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(x - 2, y + 19, fw + 2, h - 19);             // 底部暗带
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath();                                         // 每 10% 一道细刻线
+  for (let i = 1; i < 10; i++) { if (i === 5) continue; const tx = x + sk + (w - sk) * i / 10; ctx.moveTo(tx, y); ctx.lineTo(tx + 2, y); ctx.lineTo(tx + 2 - sk, y + h); ctx.lineTo(tx - sk, y + h); ctx.closePath(); }
+  ctx.fill();
+  const mx = x + sk + (w - sk) * 0.5;                                                          // 50%：狂暴分割线
+  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.moveTo(mx + sk - 2, y - 2); ctx.lineTo(mx + sk + 4, y - 2); ctx.lineTo(mx + 4, y + h + 2); ctx.lineTo(mx - 2, y + h + 2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = rage && Math.floor(uiT * 8) % 2 === 0 ? '#FF3B2E' : '#FFF6E5'; ctx.beginPath(); ctx.moveTo(mx + sk, y + 3); ctx.lineTo(mx + sk + 2, y + 3); ctx.lineTo(mx + 2, y + h - 3); ctx.lineTo(mx, y + h - 3); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  pgram(ctx, x, y, w, h, sk); ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();   // 3px 纯黑外描边
+  if (e.slagTimer > 0) {   // 紫渣增幅：血条泛起亮紫色脉冲边框
+    const pu = 0.5 + 0.5 * Math.sin(uiT * 9);
+    ctx.lineWidth = 4 + 5 * pu; ctx.strokeStyle = 'rgba(196,77,255,' + (0.4 + 0.5 * pu).toFixed(3) + ')'; ctx.stroke();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = '#F3E0FF'; ctx.stroke();
+  } else if (e.shockSlowTimer > 0 && Math.floor(uiT * 30) % 2 === 0) { ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(95,243,255,0.75)'; ctx.stroke(); }
+  else if (burn) { ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(255,138,30,' + (0.35 + 0.3 * Math.sin(uiT * 14)).toFixed(3) + ')'; ctx.stroke(); }
+  // 名称 / 血量 / 阶段
+  txt(D.name + '  ' + D.name2, x + sk + 16, y + h / 2 + 1, 18, '#FFFFFF', 'left', 5, FONT_IMPACT);
+  if (w > 760) txt(rage ? '狂暴 PHASE 2' : 'PHASE 1', x + w - 16, y + h / 2 + 1, 17, rage ? (Math.floor(uiT * 6) % 2 ? '#FF3B2E' : '#FFE23F') : '#FFE9B0', 'right', 5, FONT_IMPACT);
+  if (w > 620) txt(fmtNum(Math.max(0, e.hp)) + ' / ' + fmtNum(e.hpMax), x + w - (w > 760 ? 168 : 16), y + h / 2 + 1, 15, '#FFFFFF', 'right', 4, FONT_IMPACT);
+  // 元素状态贴纸
+  let cx = x + sk + 4;
+  const chip = (label, cc) => { ctx.font = '900 13px ' + FONT_UI; const tw = Math.ceil(ctx.measureText(label).width) + 18; pgram(ctx, cx, y + h + 7, tw, 20, 6); ctx.fillStyle = 'rgba(20,12,6,0.82)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = cc; ctx.stroke(); txt(label, cx + tw / 2, y + h + 17.5, 13, cc, 'center', 3); cx += tw + 8; };
+  if (e.slagTimer > 0) chip('紫渣 ×2.0', '#D45CFF');
+  if (acid) chip('腐蚀 +25%', '#8CFF3A');
+  if (burn) chip('灼烧 ' + Math.ceil(e.burnTimer) + 's', '#FF8A1E');
+  if (e.shockSlowTimer > 0) chip('麻痹 -30%', '#5FF3FF');
+  if (e.kind === 0 && e.st === 'stun') chip('眩晕！快打', '#FFD23F');
+  if (w > 980) txt('50% 进入狂暴', mx + 16, y + h + 17, 12, '#CDB89A', 'left', 3);
+  ctx.restore();
+}
+
+/* Boss 在屏幕外时：屏幕边缘的方向箭头（Boss 主题色 + 与玩家的距离） */
+function drawBossPointer() {
+  const e = boss; if (!e || !bossBarOn() || !player.alive) return;
+  const sx = (e.x - cam.x) * ZOOM + W / 2, sy = (e.y - cam.y) * ZOOM + H / 2, x0 = 52, x1 = W - 52, y0 = 166, y1 = H - 134;   // 上边界让开 Boss 血条 + 下移后的计时器
+  if (sx > x0 && sx < x1 && sy > y0 && sy < y1) return;
+  const dx = sx - W / 2, dy = sy - H / 2, k = Math.min(dx > 0 ? (x1 - W / 2) / dx : dx < 0 ? (x0 - W / 2) / dx : Infinity, dy > 0 ? (y1 - H / 2) / dy : dy < 0 ? (y0 - H / 2) / dy : Infinity);
+  const px = W / 2 + dx * k, py = H / 2 + dy * k, a = Math.atan2(dy, dx), s = 1 + Math.sin(uiT * 9) * 0.1, D = BOSS_DEFS[e.kind];
+  ctx.save(); ctx.translate(px, py); ctx.rotate(a); ctx.scale(s, s);
+  ctx.beginPath(); ctx.moveTo(26, 0); ctx.lineTo(-16, -19); ctx.lineTo(-6, 0); ctx.lineTo(-16, 19); ctx.closePath();
+  ctx.fillStyle = D.col; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke();
+  ctx.restore();
+  txt(Math.round(hyp(e.x - player.x, e.y - player.y)) + 'm', px, py + (dy > 0 ? -34 : 36), 14, '#FFD23F', 'center', 4, FONT_IMPACT);
+}
+
+/* Boss 登场定格（1.8 秒）：高对比度美漫斜切色块从两侧撞入 + 半调网点，右侧是粗黑放射速度线 + 爆炸星形里的 Boss 特写立绘，
+   左侧弹出倾斜的粗黑描边标题框（名号 + 荒诞副标题）。期间世界逻辑冻结，只有这段动画和镜头在动 */
+const SPLASH_BURST = (() => { const rng = mulberry32(4242), p = []; for (let i = 0; i < 32; i++) { const a = i / 32 * TAU, v = i % 2 ? 62 + rng() * 6 : 82 + rng() * 14; p.push([Math.cos(a) * v, Math.sin(a) * v]); } return p; })();
+function drawBossSplash() {
+  const e = boss; if (!e) return;
+  const D = BOSS_DEFS[e.kind], te = BOSS_INTRO - bossIntro, R = hyp(W, H) / 2 + 60, u = clamp(Math.min(W / 1280, H / 760), 0.5, 1.15);
+  const out = clamp((te - (BOSS_INTRO - 0.22)) / 0.22, 0, 1), wx = out * out * (W + 160) - 80;   // 收场：一道斜边从左向右擦除，露出战斗画面
+  ctx.save();
+  ctx.fillStyle = D.dark; ctx.fillRect(0, 0, W, H);   // 深色底：色块滑入之前先盖住战斗画面
+  ctx.beginPath(); ctx.moveTo(wx + 70, -4); ctx.lineTo(W + 90, -4); ctx.lineTo(W - 70, H + 4); ctx.lineTo(wx - 70, H + 4); ctx.closePath(); ctx.clip();
+  /* ---- 斜切背景色块：5 条斜带从两侧交替撞入，带间黑线，再铺一层半调网点 ---- */
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(-0.2);
+  const bands = [D.col, D.dark, D.col2, D.dark, D.col], bh = R * 2.3 / bands.length, BW = R * 2.6;
+  for (let i = 0; i < bands.length; i++) {
+    const pin = easeOut(clamp((te - i * 0.035) / 0.24, 0, 1)), from = i % 2 ? BW : -BW;
+    ctx.save(); ctx.translate((1 - pin) * from, -R * 1.15 + i * bh); ctx.transform(1, 0, -0.3, 1, 0, 0);
+    ctx.fillStyle = bands[i]; ctx.fillRect(-BW * 0.4, 0, BW * 1.8, bh + 1);
+    ctx.fillStyle = '#000'; ctx.fillRect(-BW * 0.4, bh - 6, BW * 1.8, 6);
+    ctx.restore();
+  }
+  if (dotBlack) { ctx.globalAlpha = 0.22; ctx.fillStyle = dotBlack; ctx.fillRect(-R * 1.3, -R * 1.3, R * 2.6, R * 2.6); ctx.globalAlpha = 1; }
+  ctx.restore();
+  /* ---- 右侧：粗黑放射速度线 + 爆炸星形 + Boss 特写立绘 ---- */
+  const px = W * 0.72, py = H * 0.5, jit = te < 0.7 ? 1 : 0;
+  const pp = easeOutBack(clamp((te - 0.08) / 0.36, 0, 1)), ps = u * Math.min(H * 0.6 / [104, 124, 146][e.kind], W * 0.4 / [112, 124, 108][e.kind]);
+  ctx.save(); ctx.beginPath(); ctx.rect(W * 0.37, 0, W, H); ctx.clip();   // 速度线只画在右半边，不压标题框
+  ctx.save(); ctx.translate(px + (1 - pp) * (W * 0.5 + 500) + rand(-2, 2) * jit, py + rand(-2, 2) * jit);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 44; i++) {
+    const a = i / 44 * TAU + Math.sin(i * 12.9898) * 0.08 + uiT * 0.12, r1 = R * (0.2 + ((i * 37) % 11) / 11 * 0.16), r2 = r1 + R * (0.3 + ((i * 53) % 7) / 7 * 0.3), c = Math.cos(a), s = Math.sin(a), wd = 4 + (i * 29) % 7;
+    ctx.beginPath(); ctx.moveTo(c * r1, s * r1); ctx.lineTo(c * r2, s * r2);
+    ctx.lineWidth = wd + 5; ctx.strokeStyle = D.dark; ctx.stroke();
+    ctx.lineWidth = wd; ctx.strokeStyle = i % 6 ? '#000000' : '#FFFFFF'; ctx.stroke();
+  }
+  ctx.scale(ps * (0.5 + 0.5 * pp), ps * (0.5 + 0.5 * pp));
+  ctx.save(); ctx.scale(e.kind === 2 ? 1.3 : 1.1, e.kind === 2 ? 1.3 : 1.1); polyPath(ctx, SPLASH_BURST); ctx.fillStyle = D.col2; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.restore();   // 爆炸星形
+  if (e.kind === 1) drawWardenRing(0, 0, false);
+  const pa = [Math.PI * 1.1, Math.PI * 1.08, Math.PI * 0.96][e.kind];   // 特写朝向：车头 / 独眼 / 喙都朝着左侧的标题框
+  BOSS_DRAW[e.kind](ctx, { kind: e.kind, phase: 1, st: 'move', ang: pa, tur: pa + 0.5, trec: 0, walk: 1.9, el: 'acid', x: 0, y: 0 }, null);
+  ctx.restore();
+  ctx.restore();
+  /* ---- 左侧：倾斜的粗黑描边标题框 ---- */
+  const tp = easeOutBack(clamp((te - 0.24) / 0.3, 0, 1)), slam = te > 0.3 && te < 0.44;   // 0.24 秒时砸进来，带过冲和抖动
+  ctx.save(); ctx.translate(W * 0.05 + (1 - tp) * -(W * 0.55 + 700) + (slam ? rand(-6, 6) : 0), H * 0.5 + (slam ? rand(-5, 5) : 0)); ctx.rotate(-0.07);
+  const sp = Math.min(u, (W * 0.46) / 640) * lerp(1.5, 1, tp); ctx.scale(sp, sp); ctx.translate(0, -135);
+  ctx.lineJoin = 'round';
+  ctx.fillStyle = 'rgba(0,0,0,0.85)'; pgram(ctx, 14, 16, 640, 270, 34); ctx.fill();                                                           // 硬投影
+  ctx.fillStyle = '#F4E9D3'; pgram(ctx, 0, 0, 640, 270, 34); ctx.fill(); ctx.lineWidth = 9; ctx.strokeStyle = '#000'; ctx.stroke(); // 纸面 + 粗黑描边
+  ctx.lineWidth = 4; ctx.strokeStyle = D.col; pgram(ctx, 12, 12, 616, 246, 28); ctx.stroke();                                             // 主题色内框
+  const tag = 'BADASS 关底 BOSS' + (e.cycle > 0 ? ' · 加强版' : '');
+  ctx.font = '900 20px ' + FONT_UI; const tw = Math.ceil(ctx.measureText(tag).width) + 40;
+  pgram(ctx, 40, -22, tw, 42, 11); ctx.fillStyle = '#E8452C'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke(); // 角标
+  txt(tag, 40 + tw / 2, -1, 20, '#fff', 'center', 4);
+  MEASURE.font = 'italic 900 66px ' + FONT_IMPACT; comicText(D.name, 44 + MEASURE.measureText(D.name).width / 2, 78, 66, D.col, 13, 7);      // 名号
+  MEASURE.font = 'italic 900 48px ' + FONT_IMPACT; comicText(D.name2, 44 + MEASURE.measureText(D.name2).width / 2, 148, 48, '#1A120B', 0, 0);
+  MEASURE.font = '900 24px ' + FONT_IMPACT; spaced(D.en, 44 + MEASURE.measureText(D.en).width / 2 + D.en.length * 3, 198, 24, D.col, 6);      // 英文名
+  txt(D.sub, 44, 238, 24, '#3A2E20', 'left', 0);                                                                                   // 荒诞副标题
+  ctx.restore();
+  txt('地面红圈 / 红线 = 预警    ·    冲刺（空格 / 右键）期间无敌，可以硬穿', W / 2, H - 44, 18, '#F4E9D3', 'center', 5);
+  ctx.restore();
+  if (out > 0 && out < 1) {   // 擦除边：粗黑线 + 主题色亮边
+    ctx.lineCap = 'butt'; ctx.beginPath(); ctx.moveTo(wx + 70, 0); ctx.lineTo(wx - 70, H);
+    ctx.lineWidth = 24; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.lineWidth = 8; ctx.strokeStyle = D.col2; ctx.stroke();
+  }
+  if (te < 0.1) { ctx.fillStyle = 'rgba(255,255,255,' + (1 - te / 0.1).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H); }                // 开场白闪
+}
 /* ============================================================
    开始界面
    ============================================================ */
 let demoT = 0.5, demoRecoil = 0, demoMuzzle = 0, demoV = 0, demoW = -1;   // 角色预览的空枪试射：距下一枪的秒数 / 后坐 / 枪口焰剩余时间 / 变体 / 上帧展示的武器
 function drawStart() {
-  const t = uiT, m = uiRects.mute, mh = ptInRect(mouse.x, mouse.y, m);
+  const t = uiT, m = muteRect(), mh = ptInRect(mouse.x, mouse.y, m);
   if (mh) uiHover = true;
   ctx.fillStyle = 'rgba(20,12,6,0.42)'; ctx.fillRect(0, 0, W, H);
   blit(muteButtonSprite(Snd.muted, mh), m.x + 19, m.y + 20);
@@ -3230,6 +4184,12 @@ function drawStart() {
   txt('开始游戏', 0, 2, 34, '#000', 'center', 0);
   ctx.restore();
   txt('点击按钮，或按 回车 / 空格', W / 2, byy + 56, 16, '#F4E9D3', 'center', 4);
+  if (W > 860) {   // 开始按钮左侧的贴纸：提醒每 3 分钟有 Boss
+    ctx.save(); ctx.translate(W / 2 - bw / 2 - 96, byy - 4); ctx.rotate(-0.1);
+    ctx.fillStyle = '#E8452C'; rr(ctx, -70, -30, 140, 60, 8); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
+    txt('每 3 分钟', 0, -11, 17, '#fff', 'center', 4); txt('关底 BOSS 战', 0, 11, 17, '#FFD23F', 'center', 4);
+    ctx.restore();
+  }
   txt(TIPS[Math.floor(t / 4) % TIPS.length], W / 2, H - 22, 15, '#FFE9B0', 'center', 4);
   drawVersion();
 }
@@ -3358,15 +4318,16 @@ function drawLevelUp() {
   ctx.fillStyle = 'rgba(20,12,6,' + Math.min(0.72, t * 3).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
   const tp = clamp(t / 0.25, 0, 1), sc = easeOutBack(tp);
   ctx.save(); ctx.translate(W / 2, 84); ctx.rotate(-0.03); ctx.scale(sc, sc);
-  comicText('升 级 ！', 0, 0, 56, '#FFD23F', 11, 6);
+  comicText(vaultMode ? '秘 藏 宝 箱 ！' : '升 级 ！', 0, 0, 56, vaultMode ? '#FF8C00' : '#FFD23F', 11, 6);
   ctx.restore();
-  txt('选择一张卡  ·  当前等级 ' + player.level + (pendingLevels > 1 ? '  ·  还有 ' + (pendingLevels - 1) + ' 次升级' : ''), W / 2, 132, 19, '#F4E9D3', 'center', 5);
+  txt(vaultMode ? '必出稀有以上词条  ·  免费强化，不消耗经验' : '选择一张卡  ·  当前等级 ' + player.level + (pendingLevels > 1 ? '  ·  还有 ' + (pendingLevels - 1) + ' 次升级' : ''), W / 2, 132, 19, '#F4E9D3', 'center', 5);
   const cw = 236, gap = 30, ch = 412, total = cards.length * cw + (cards.length - 1) * gap;
   const s = clamp((H - 380) / ch, 0.62, 1) * clamp((W - 40) / total, 0.6, 1);
   const x0 = W / 2 - total * s / 2, cy = H / 2 + 26;
   for (let i = 0; i < cards.length; i++) drawCard(cards[i], i, x0 + (cw / 2 + i * (cw + gap)) * s, cy, s);
   // 跳过按钮
   const sy = cy + 206 * s + 46;
+  if (vaultMode) { txt('宝箱奖励必选其一  ·  已回复 30% 生命  ·  选完恢复刷怪', W / 2, sy, 17, '#FFB25A', 'center', 5); return; }   // 宝箱强化没有跳过按钮
   uiRects.skip = { x: W / 2 - 150, y: sy - 22, w: 300, h: 44 };
   const on = skipHover > 0.5 || (picking && picking.i === 3);
   if (skipHover > 0.5) uiHover = true;
@@ -3394,7 +4355,7 @@ function drawPause() {
 function drawOver() {
   const k = clamp(overT / 0.5, 0, 1);
   ctx.fillStyle = 'rgba(30,6,4,' + (0.8 * k).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
-  const ls = clamp((H - 330) / 500, 0.6, 1), ty = H * 0.13, cardH = 410;
+  const ls = clamp((H - 330) / 500, 0.6, 1), ty = H * 0.13, cardH = 440;
   ctx.save(); ctx.globalAlpha = k; ctx.translate(W / 2, ty); ctx.rotate(-0.03);
   const sc = easeOutBack(k); ctx.scale(sc, sc);
   comicText('GAME OVER', 0, 0, Math.min(108, W / 9), '#E8452C', 12, 8);
@@ -3409,7 +4370,7 @@ function drawOver() {
   txt('战斗统计', -hw + 24, -148 + 34, 26, '#000', 'left', 0);
   ctx.fillStyle = '#000'; ctx.fillRect(-hw + 20, -148 + 56, sw - 40, 3);
   const rows = [['存活时间', fmtTime(gameTime)], ['击杀数', fmtNum(stats.kills)], ['达到等级', 'LV ' + player.level], ['造成伤害', fmtNum(stats.damage)],
-    ['暴击次数', fmtNum(stats.crits) + '（最高 ' + fmtNum(stats.maxCrit) + '）'], ['受到伤害', fmtNum(stats.dmgTaken)], ['冲刺次数', fmtNum(stats.dashes)]];
+    ['暴击次数', fmtNum(stats.crits) + '（最高 ' + fmtNum(stats.maxCrit) + '）'], ['受到伤害', fmtNum(stats.dmgTaken)], ['击杀 Boss', fmtNum(stats.bossKills)], ['冲刺次数', fmtNum(stats.dashes)]];
   rows.forEach((r, i) => {
     const yy = -148 + 84 + i * 29;
     txt(r[0], -hw + 28, yy, 19, '#3A2E20', 'left', 0);
@@ -3417,12 +4378,12 @@ function drawOver() {
     if (i < rows.length - 1) { ctx.fillStyle = 'rgba(60,40,20,0.18)'; ctx.fillRect(-hw + 24, yy + 14.5, sw - 48, 1.5); }
   });
   // 本局最致命词条 / 元素伤害占比：累计造成伤害最高的 3 个来源
-  ctx.fillStyle = '#000'; ctx.fillRect(-hw + 20, -148 + 278, sw - 40, 3);
-  txt('最致命词条 / 元素伤害占比', -hw + 24, -148 + 300, 19, '#000', 'left', 0);
+  ctx.fillStyle = '#000'; ctx.fillRect(-hw + 20, -148 + 307, sw - 40, 3);
+  txt('最致命词条 / 元素伤害占比', -hw + 24, -148 + 329, 19, '#000', 'left', 0);
   const src = Object.keys(stats.dmgBy).map(t => ({ t, v: stats.dmgBy[t] })).sort((a, b) => b.v - a.v).slice(0, 3), top = src.length ? src[0].v : 1;
-  if (!src.length) txt('本局没有造成任何伤害', -hw + 28, -148 + 336, 17, '#7A5A2A', 'left', 0);
+  if (!src.length) txt('本局没有造成任何伤害', -hw + 28, -148 + 364, 17, '#7A5A2A', 'left', 0);
   src.forEach((q, i) => {
-    const yy = -148 + 326 + i * 26, d = DMG_SRC[q.t] || [q.t, '#FFFFFF'];
+    const yy = -148 + 355 + i * 26, d = DMG_SRC[q.t] || [q.t, '#FFFFFF'];
     txt(String(i + 1), -hw + 30, yy, 19, i === 0 ? '#B3261E' : '#3A2E20', 'left', 0, FONT_IMPACT);
     txt(d[0], -hw + 46, yy, 16, i === 0 ? '#B3261E' : '#3A2E20', 'left', 0);
     bar(-hw + 170, yy - 7, sw - 262, 14, q.v / top, d[1], '#FFFFFF');   // 条长 = 相对第一名的比例；右侧数字 = 占总伤害的百分比
@@ -3430,7 +4391,7 @@ function drawOver() {
   });
   ctx.restore();
   // 再来一次
-  const bw = 280, bh = 62, bx = W / 2 - bw / 2, byy = cy + 306 * ls - bh / 2;
+  const bw = 280, bh = 62, bx = W / 2 - bw / 2, byy = cy + 336 * ls - bh / 2;
   uiRects.over = { x: bx, y: byy, w: bw, h: bh };
   const hv = overT > 0.6 && ptInRect(mouse.x, mouse.y, uiRects.over); if (hv) uiHover = true;
   ctx.save(); ctx.globalAlpha = k;
@@ -3495,8 +4456,9 @@ function drawSpeedLines(k) {
 
 function drawDebug() {
   const lines = [VERSION + ' (' + BUILD_DATE + ')   FPS ' + fps.toFixed(0) + '   render x' + DPR.toFixed(2), 'enemies ' + enemies.length + '  bullets ' + bullets.length + '  parts ' + parts.length,
-    'drops ' + drops.length + '  draw ' + drawList.length + '  chunks ' + chunks.size, 'time ' + gameTime.toFixed(1) + '  state ' + state];
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(10, 96, 340, 84);
+    'drops ' + drops.length + '  draw ' + drawList.length + '  chunks ' + chunks.size, 'time ' + gameTime.toFixed(1) + '  state ' + state,
+    'boss ' + (boss ? BOSS_DEFS[boss.kind].en + ' P' + boss.phase + ' ' + boss.st + ' ' + Math.round(boss.hp) + '/' + boss.hpMax : 'none') + '  eb ' + ebullets.length + '  warns ' + warns.length + '  next ' + Math.round(bossNextT - gameTime)];
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(10, 96, 440, 102);
   ctx.font = '13px monospace'; ctx.fillStyle = '#7CFC7C'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   lines.forEach((l, i) => ctx.fillText(l, 18, 112 + i * 18));
 }
@@ -3513,11 +4475,12 @@ function updateWorld(dt) {
   Grid.build(enemies);
   separate();
   // 敌人互相推挤后可能被同伴挤进掩体，再推出一次（不带滑动），保证任何一帧都没人陷在掩体里
-  if (solidsNear.length) for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (!e.dead) resolveSolids(e, false); }
+  if (solidsNear.length) for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (!e.dead && !e.boss && !e.drone) resolveSolids(e, false); }
   updateBullets(dt);
   updateDrops(dt);
   updateFuses(dt);
   updateThrows(dt);
+  updateEBullets(dt); updateWarns(dt); updateZones(dt); updateRings(dt);   // Boss 弹幕 / 地面预警 / 残留危险区 / 冲击波环
   sweepEnemies();
   if (player.alive && player.xp >= player.xpNext) levelUp();
 }
@@ -3543,15 +4506,19 @@ function update(dt) {
     demoT -= dt;
     if (demoT <= 0) { demoT = dw === 1 ? 1.1 : dw === 2 ? 0.26 : 0.42; demoRecoil = 1; demoMuzzle = MUZ_T[dw]; demoV = (Math.random() * 3) | 0; }
   } else if (state === ST.PLAY) {
-    Music.energy = clamp(0.3 + gameTime / 420, 0.3, 1);
+    Music.energy = boss ? 1 : clamp(0.3 + gameTime / 420, 0.3, 1);   // Boss 战：音乐能量拉满
     if (hintT > 0) hintT -= dt;
     let sdt = dt;
     if (hitStop > 0) { hitStop -= dt; sdt = dt * 0.1; }   // 顿帧：爆炸 / 爆头瞬间的时间拉伸
     if (!player.alive) sdt = dt * 0.3;                     // 死亡慢镜头
+    if (bossSlow > 0) { bossSlow = Math.max(0, bossSlow - dt); sdt = dt * 0.22; }   // 击杀 Boss：0.5 秒慢动作特写
     gun = weaponStats(player.weapon);
-    updateWorld(sdt);
+    if (bossIntro > 0) {   // Boss 定格出场：世界逻辑冻结 1.8 秒，镜头平滑移向登场位置
+      bossIntro = Math.max(0, bossIntro - dt);
+      if (boss) { const k = 1 - Math.exp(-dt * 7); cam.x += (lerp(player.x, boss.x, 0.7) - cam.x) * k; cam.y += (lerp(player.y, boss.y, 0.7) - cam.y) * k; }
+    } else { if (boss) boss.age += sdt; updateWorld(sdt); }
     updateFx(sdt);
-    if (!player.alive) { deathT -= dt; if (deathT <= 0) { state = ST.OVER; overT = 0; uiRects.over = null; Music.stop(); } }
+    if (!player.alive) { deathT -= dt; if (deathT <= 0) { state = ST.OVER; overT = 0; uiRects.over = null; Music.stop(); for (let i = words.length - 1; i >= 0; i--) if (words[i].screen) poolKill(words, wordPool, i); } }   // 进结算时清掉屏幕层的拟声词，不盖住战绩卡
   } else if (state === ST.LEVEL) {
     levelT += dt; Music.energy = 0.3;
     for (let i = 0; i < cards.length; i++) {
@@ -3560,7 +4527,7 @@ function update(dt) {
       if (on && !c.wasHover) SFX.hover();
       c.wasHover = on;
     }
-    const son = !picking && levelT > 0.3 && ptInRect(mouse.x, mouse.y, uiRects.skip);
+    const son = !vaultMode && !picking && levelT > 0.3 && ptInRect(mouse.x, mouse.y, uiRects.skip);
     skipHover = clamp(skipHover + (son ? 0.25 : -0.25), 0, 1);
     if (son && !skipWas) SFX.hover();
     skipWas = son;
@@ -3608,15 +4575,19 @@ function render() {
   const x0 = cam.x - vw - 90, y0 = cam.y - vh - 90, x1 = cam.x + vw + 90, y1 = cam.y + vh + 90;
   drawGround(x0, y0, x1, y1);
   drawDecals();
+  drawWarns(); drawZones();   // 地面预警画在所有角色下面
+  if (boss && bossIntro <= 0) drawBossTele(boss);
   drawGhosts();
-  drawEnemyShadows();
+  drawEnemyShadows(); drawBossShadows();
   drawBurnGlows();
   for (let i = 0; i < drawList.length; i++) {
     const o = drawList[i];
     if (o.dk === 1) drawPropCached(o); else if (o.dk === 2) drawEnemy(o); else if (o.dk === 3) drawPlayer(); else drawDrop(o);
   }
   drawEnemyOverlays();
-  drawBooms(); drawBolts(); drawTracers(); drawZaps(); drawThrows(); drawBullets(); drawParts(); drawTexts(); drawWords(false);
+  if (boss && bossIntro <= 0) drawBossLaser(boss);   // 激光十字压在角色上面
+  drawRings();
+  drawBooms(); drawBolts(); drawTracers(); drawZaps(); drawThrows(); drawBullets(); drawEBullets(); drawParts(); drawTexts(); drawWords(false);
   ctx.restore();
   // 卷土重来：世界转成高对比黑白，再给敌人叠一层红色剪影（只有敌人保留颜色）
   if (player.swT > 0 && state !== ST.START) {
@@ -3636,11 +4607,13 @@ function render() {
   if (state === ST.START) drawStart();
   else {
     drawHUD(state === ST.PLAY || state === ST.PAUSE);   // 升级 / 结算界面顶部让位给标题
+    drawBossPointer();
+    if (boss && bossIntro > 0) drawBossSplash();   // Boss 定格出场：盖住 HUD，但压在暂停 / 升级界面下面
     if (state === ST.LEVEL) drawLevelUp(); else if (state === ST.PAUSE) drawPause(); else if (state === ST.OVER) drawOver();
   }
   drawWords(true);
   if (debug) drawDebug();
-  drawCursor();
+  if (!(boss && bossIntro > 0)) drawCursor();   // 定格出场期间不画准星
 }
 
 let last = performance.now(), qAcc = 0, qN = 0, qBad = 0;
@@ -3667,6 +4640,26 @@ function frame(now) {
 /* 调试 / 自动化测试接口（不影响正常游玩） */
 window.__wm = {
   version: VERSION + ' ' + BUILD_DATE,
+  boss: () => boss,
+  bossInfo: () => boss ? { kind: boss.kind, phase: boss.phase, st: boss.st, stT: +boss.stT.toFixed(3), hp: boss.hp, hpMax: boss.hpMax, x: boss.x, y: boss.y, nB: boss.nB, lA: boss.lA, lDir: boss.lDir, lSpd: boss.lSpd, rate: boss.rate, age: boss.age, cycle: boss.cycle, txA: boss.txA, el: boss.el, sx: boss.sx, sy: boss.sy } : null,
+  bossState: () => ({ intro: bossIntro, slow: bossSlow, n: bossN, next: bossNextT, wave: nextWaveT, badass: nextBossT, vaultPending, vaultMode }),
+  bossNow(kind) { if (boss) return null; bossNextT = gameTime; startBossFight(kind); return boss; },   // 立刻让指定序号的 Boss 登场
+  skipIntro() { if (bossIntro > 0) bossIntro = 0.001; },
+  bossSeq(n) { bossN = n; },
+  nextBossAt(tt) { bossNextT = tt; },                                                        // 指定下一个 Boss 的登场时刻（测试用）                                                                  // 指定下一个 Boss 的登场序号（血量按序号递增；标定用）
+  bossHurt(n) { if (boss) applyDamage(boss, n, { silent: true }); },
+  clearLoot() { drops.length = 0; xpCount = 0; vaultPending = false; },                // 清掉地面的掉落物并解除刷怪暂停（测试用）
+  clearEnemies() { for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].boss) enemies.splice(i, 1); },   // 清掉全部小兵，只留 Boss（测试用）
+  clearShots() { ebullets.length = 0; },
+  autoAim(n) { for (let i = 0; i < n && boss; i++) { mouse.x = W / 2 + (boss.x - cam.x) * ZOOM; mouse.y = H / 2 + (boss.y - cam.y) * ZOOM; update(1 / 60); } },   // 准星始终对准 Boss 推 n 帧（不渲染；血量标定用）                                                   // 清掉 Boss 弹幕（测试用）
+  loot: () => drops.map(d => ({ type: d.type, v: d.v, tier: d.tier })),                        // 地面上的掉落物
+  vaultCards: () => { openLevelUp(true); return cards.map(c => [c.key, (UPS[c.key] || EXTRA[c.key]).tier]); },                          // 直接开一次宝箱强化并返回三张卡（统计用）
+  pending: () => pendingLevels,
+  ebullets: () => ebullets.map(b => ({ kind: b.kind, x: b.x, y: b.y, a: b.a, dmg: b.dmg, life: b.life })),
+  warns: () => warns.map(w => ({ x: w.x, y: w.y, r: w.r, t: w.t, max: w.max, dmg: w.dmg })),
+  zones: () => zones.map(z => ({ x: z.x, y: z.y, a: z.a, half: z.half, len: z.len, t: z.t, max: z.max, el: z.el })),
+  rings: () => rings.map(r => ({ x: r.x, y: r.y, r: r.r, maxR: r.maxR, hit: r.hit })),
+  drones: () => enemies.filter(e => e.drone && !e.dead).map(e => ({ x: e.x, y: e.y, arming: e.arming, hp: e.hp })),
   get state() { return state; }, get time() { return gameTime; }, get fps() { return fps; },
   player: () => player, enemies: () => enemies, stats: () => stats,
   counts: () => ({ enemies: enemies.length, bullets: bullets.length, parts: parts.length, drops: drops.length, decals: decals.length }),
@@ -3700,6 +4693,8 @@ function warmup() {
   txt('00:00 LV 12', W / 2, H / 2 + 90, 24, '#fff', 'center', 4, FONT_IMPACT);
   spaced('WASTELAND MAYHEM', W / 2, H / 2 + 130, 24, '#fff', 6);
   comicText('PING! BOOM! KABOOM! GUNZERK! HISSS! NOVA! SECOND WIND! 殊死一搏！已锁定', W / 2, H / 2 + 20, 30, '#FFD23F', 6, 4);
+  comicText('BOSS DEFEATED! LOOT! ENRAGED! CRUNCH! SLAM! DEPLOY! DIZZY! 狂暴化！元素过载！秘藏宝箱！', W / 2, H / 2 + 50, 30, '#FFD23F', 6, 4);
+  txt('轰炸狂人布姆·博姆亥伯龙实验体W4R-D3N构造体血翼变异体元素领主他把你的头盖骨当成了烟灰缸！50% 进入狂暴 紫渣 ×2.0 BOSS 00:00', W / 2, H / 2 + 80, 20, '#fff', 'center', 4);
   for (const id of ['shotgun', 'firerate', 'pierce', 'fire', 'shock', 'damage', 'speed', 'magnet', 'crit', 'shield', 'maxhp', 'dashcd', 'heal', 'nuke', 'frenzy', 'vault', 'skull',
     'jakobs', 'torgue', 'hyperion', 'tediore', 'gunzerker', 'corrosive', 'slag', 'nova', 'secondwind', 'bloodlust']) drawIcon(id, W / 2, H / 2 + 180, 12, '#FFD23F');
 }
