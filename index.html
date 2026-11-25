@@ -258,15 +258,17 @@ const words = [], wordPool = [];
 const drops = [];
 const fuses = [], booms = [], bolts = [], zaps = [], ghosts = [], decals = [], toasts = [];   // zaps：电击命中点的电光星
 const drawList = [], solidsNear = [];
+let boxCount = 0;   // solidsNear 里集装箱的数量（为 0 时敌人跳过绕行计算）
 let banner = null, gun = null, stats = null;
 
 function xpNeed(l) { return Math.floor(8 + l * 5 + Math.pow(l, 1.75)); }
 function newPlayer() {
   return { x: 0, y: 0, r: 13, sy: 0, dk: 3, hp: 100, hpMax: 100, regen: 0, shield: 30, shieldMax: 30, shieldRate: 14, shieldDelay: 0, shieldFx: 0,
     speed: 250, mvx: 0, mvy: 0, kbx: 0, kby: 0, aim: 0, hasTarget: false, moving: false, walk: 0,
-    weapon: 0, prevW: 0, swapT: 0, ammo: WEAPONS.map(w => w.mag), mmax: WEAPONS.map(w => w.mag), rel: [0, 0, 0], fireT: 0, heat: 0, spread: 0, recoil: 0, muzzle: 0, flash: 0,   // 每把枪独立弹匣 ammo / 容量 mmax / 剩余装填秒数 rel（0 = 未在装填）
+    weapon: 0, prevW: 0, swapT: 0, ammo: WEAPONS.map(w => w.mag), mmax: WEAPONS.map(w => w.mag), rel: [0, 0, 0], fireT: 0, heat: 0, spread: 0, recoil: 0, muzzle: 0, muzV: 0, flash: 0,   // muzzle 枪口焰剩余秒数 · muzV 枪口焰变体序号；// 每把枪独立弹匣 ammo / 容量 mmax / 剩余装填秒数 rel（0 = 未在装填）
     iframes: 0, dashT: 0, dashCd: 0, dashCdMax: DASH_CD, dashDx: 1, dashDy: 0, ghostT: 0, frenzyT: 0,
-    level: 1, xp: 0, xpNext: xpNeed(1), crit: 0.05, magnetR: 95, alive: true };
+    level: 1, xp: 0, xpNext: xpNeed(1), crit: 0.05, magnetR: 95, alive: true,
+    hpGhost: 100, hpGhostT: 0, shGhost: 30 };   // 血条 / 护盾条的"掉血残影"值，以及残影开始追赶前的停留秒数
 }
 let player = newPlayer();
 
@@ -304,7 +306,9 @@ const TIPS = [
   '提示：准星变红 = 已锁定目标；按住左键可自由射击。',
   '提示：霰弹枪打空后马上切冲锋枪，装填期间也能持续输出。',
   '提示：霰弹枪后坐力很大，朝远离敌人的方向开枪能把自己弹出去。',
-  '提示：电击会让敌人麻痹减速，被围住时用冲锋枪开路。'
+  '提示：电击会让敌人麻痹减速，被围住时用冲锋枪开路。',
+  '提示：岩石和集装箱挡子弹也挡人——绕着掩体跑，让疯子们排队拐弯。',
+  '提示：躲在掩体后面的敌人不会被自动瞄准锁定，换个角度再打。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -442,34 +446,165 @@ function getChunk(cx, cy) {
   tryOne(0.5, mkBarrel);
   tryOne(0.3, mkCactus);
   tryOne(0.16, mkSign);
+  // 掩体：岩块群（一块大岩石带 1~2 块小岩石）和废土集装箱（可成对摆放）。两者都整体落在区块内部，
+  // 放好后把与它重叠的小物件清掉，保证每处掩体只有一个干净的轮廓
+  if (rng() >= 0.6) {
+    const pile = mkRockPile(bx + clamp(rng() * CHUNK, 196, CHUNK - 196), by + clamp(rng() * CHUNK, 196, CHUNK - 196), rng, k);
+    if (hyp(pile[0].x, pile[0].y) >= 340) { for (const r of pile) c.props.push(r); pruneProps(c, pile); }
+  }
+  if (rng() >= 0.5) {
+    const boxes = mkBoxes(bx + 116 + rng() * (CHUNK - 232), by + 116 + rng() * (CHUNK - 232), rng, k).filter(b => hyp(b.x, b.y) >= 340 && b.x > bx + 116 && b.x < bx + CHUNK - 116 && b.y > by + 116 && b.y < by + CHUNK - 116);
+    if (boxes.length) { for (const b of boxes) c.props.push(b); pruneProps(c, boxes); }
+  }
   chunks.set(k, c);
   return c;
 }
-const ROCK_BASE = 32;   // 岩块位图的基准半径，实际大小用 p.r / ROCK_BASE 缩放
-function mkRock(x, y, rng) { const r = 22 + rng() * 20; return { type: 'rock', x, y, r, cr: r * 0.8, solid: true, tall: true, dead: false, v: Math.floor(rng() * 4), sy: y + r * 0.6 }; }
+const ROCK_BASE = 32, BIG_ROCK = 52;   // 岩块位图的基准半径（普通 / 掩体大岩块），实际大小用 p.r / 基准半径 缩放
+function mkRock(x, y, rng) { const r = 22 + rng() * 20; return { type: 'rock', x, y, r, cr: r * 0.8, solid: true, hard: true, tall: true, dead: false, v: Math.floor(rng() * 4), sy: y + r * 0.6 }; }   // hard：同时挡子弹
 function mkBarrel(x, y, rng, id) { return { type: 'barrel', x, y, r: 12.5, cr: 11, solid: true, tall: true, dead: deadBarrels.has(id), id, sy: y + 13 }; }
 function mkCactus(x, y, rng) { return { type: 'cactus', x, y, cr: 9, solid: true, tall: true, dead: false, v: rng() < 0.5 ? 1 : 0, sy: y + 2 }; }
 function mkSign(x, y, rng) { return { type: 'sign', x, y, solid: false, tall: true, dead: false, v: rng() < 0.5 ? 1 : 0, sy: y + 2 }; }
 
+/* 岩块群（掩体）：一块大岩石带 1~2 块小岩石首尾相贴，排成一道能挡人、挡子弹的矮墙。返回的岩块都标 hard */
+function mkRockPile(x, y, rng, id) {
+  const big = mkRock(x, y, rng, id), out = [big];
+  big.r = 46 + rng() * 16; big.cr = big.r * 0.8; big.big = true; big.v = Math.floor(rng() * 3); big.sy = y + big.r * 0.6;
+  let px = x, py = y, r0 = big.r, a = rng() * TAU;
+  for (let i = 0, n = 1 + Math.floor(rng() * 2); i < n; i++) {
+    const r = 20 + rng() * 12, rk = mkRock(px + Math.cos(a) * (r0 + r - 12), py + Math.sin(a) * (r0 + r - 12), rng, id + ':' + i);
+    rk.r = r; rk.cr = r * 0.8; rk.sy = rk.y + r * 0.6; out.push(rk);
+    px = rk.x; py = rk.y; r0 = r; a += (rng() * 2 - 1) * 0.6;
+  }
+  for (const rk of out) rk.hard = true;
+  return out;
+}
+const BOX_VAR = [{ L: 104, Wd: 46 }, { L: 132, Wd: 50 }, { L: 160, Wd: 54 }, { L: 188, Wd: 58 }];   // 集装箱尺寸：长 × 宽
+/* 废土集装箱（顶视）：长边沿局部 x 轴的斜置矩形。hw / hh 半长半宽 · c / s 朝向角的余弦正弦 · br 外接圆半径
+   solid 挡人 · hard 挡子弹 · v 位图变体（尺寸序号 × 6 + 涂装序号）。三成概率并排放第二只 */
+function mkBoxes(x, y, rng, id) {
+  const si = Math.floor(rng() * BOX_VAR.length), V = BOX_VAR[si], rot = (rng() * 2 - 1) * 0.32 + (rng() < 0.35 ? Math.PI / 2 : 0), c = Math.cos(rot), s = Math.sin(rot);
+  const one = (cx, cy, vi) => ({ type: 'box', x: cx, y: cy, rot, c, s, hw: V.L / 2, hh: V.Wd / 2, L: V.L, Wd: V.Wd, v: si * 6 + Math.floor(rng() * 6), id: id + ':' + vi,
+    solid: true, hard: true, tall: true, dead: false, br: hyp(V.L, V.Wd) / 2 + 8, sy: cy + Math.abs(s) * V.L / 2 + Math.abs(c) * V.Wd / 2 });
+  const out = [one(x, y, 0)], off = V.Wd + 9, b2 = one(x - s * off, y + c * off, 1);
+  if (rng() < 0.3 && hyp(b2.x, b2.y) >= 340) out.push(b2);
+  return out;
+}
+/* 两个物件是否挤在一起：箱体按矩形算，其余按圆算 */
+function overlapSolid(a, b) {
+  const box = a.type === 'box' ? a : b.type === 'box' ? b : null;
+  if (!box) return hyp(a.x - b.x, a.y - b.y) < (a.cr || 8) + (b.cr || 8) + 6;
+  const o = box === a ? b : a, rx = o.x - box.x, ry = o.y - box.y;
+  const u = clamp(rx * box.c + ry * box.s, -box.hw, box.hw), v = clamp(-rx * box.s + ry * box.c, -box.hh, box.hh);
+  return hyp(rx - (u * box.c - v * box.s), ry - (u * box.s + v * box.c)) < (o.cr || 8) + 10;
+}
+/* 清掉与 keep 中任一件重叠的高物件（小岩石 / 油桶 / 仙人掌 / 路牌） */
+function pruneProps(c, keep) {
+  for (let i = c.props.length - 1; i >= 0; i--) {
+    const p = c.props[i]; if (!p.tall || keep.includes(p)) continue;
+    for (const q of keep) if (overlapSolid(p, q)) { c.props.splice(i, 1); break; }
+  }
+}
+
 function collectSolids() {
-  solidsNear.length = 0;
+  solidsNear.length = 0; boxCount = 0;
   const R = 1000, cx0 = Math.floor((player.x - R) / CHUNK), cx1 = Math.floor((player.x + R) / CHUNK), cy0 = Math.floor((player.y - R) / CHUNK), cy1 = Math.floor((player.y + R) / CHUNK);
-  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { const c = getChunk(cx, cy); for (const p of c.props) if (p.solid && !p.dead) solidsNear.push(p); }
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { const c = getChunk(cx, cy); for (const p of c.props) if (p.solid && !p.dead) { solidsNear.push(p); if (p.type === 'box') boxCount++; } }
   if (chunks.size > 700) evictChunks(player.x, player.y);
 }
 
-/* 圆形实体与固体障碍的推出分离；slide=true 时附带切向滑动，避免敌人卡死在岩石正后方 */
+/* 圆形实体与固体障碍的推出分离；slide=true 时附带切向滑动，避免敌人卡死在岩石正后方
+   圆形障碍按距离算；集装箱是斜置矩形——把圆心换到箱体局部坐标，夹到矩形上找最近点，沿这条法线推出 */
 function resolveSolids(o, slide) {
   for (let i = 0; i < solidsNear.length; i++) {
-    const p = solidsNear[i], rr2 = o.r + p.cr;
-    let dx = o.x - p.x, dy = o.y - p.y;
-    if (dx > rr2 || dx < -rr2 || dy > rr2 || dy < -rr2) continue;
-    const d2 = dx * dx + dy * dy; if (d2 >= rr2 * rr2) continue;
-    let d = Math.sqrt(d2); if (d < 0.01) { dx = 1; dy = 0; d = 1; } else { dx /= d; dy /= d; }
-    const push = rr2 - d;
+    const p = solidsNear[i]; let dx, dy, push;
+    if (p.type === 'box') {
+      const rx = o.x - p.x, ry = o.y - p.y, lim = p.br + o.r;
+      if (rx > lim || rx < -lim || ry > lim || ry < -lim) continue;
+      const u = rx * p.c + ry * p.s, v = -rx * p.s + ry * p.c, ex = u - clamp(u, -p.hw, p.hw), ey = v - clamp(v, -p.hh, p.hh), d2 = ex * ex + ey * ey;
+      if (d2 >= o.r * o.r) continue;
+      let nx, ny;
+      if (d2 > 1e-6) { const d = Math.sqrt(d2); nx = ex / d; ny = ey / d; push = o.r - d; }
+      else {   // 圆心陷在箱体里：沿更薄的那一边推出去
+        const px = p.hw - Math.abs(u), py = p.hh - Math.abs(v);
+        if (px < py) { nx = u >= 0 ? 1 : -1; ny = 0; push = px + o.r; } else { nx = 0; ny = v >= 0 ? 1 : -1; push = py + o.r; }
+      }
+      dx = nx * p.c - ny * p.s; dy = nx * p.s + ny * p.c;   // 法线转回世界坐标
+    } else {
+      const rr2 = o.r + p.cr;
+      dx = o.x - p.x; dy = o.y - p.y;
+      if (dx > rr2 || dx < -rr2 || dy > rr2 || dy < -rr2) continue;
+      const d2 = dx * dx + dy * dy; if (d2 >= rr2 * rr2) continue;
+      let d = Math.sqrt(d2); if (d < 0.01) { dx = 1; dy = 0; d = 1; } else { dx /= d; dy /= d; }
+      push = rr2 - d;
+    }
     o.x += dx * push; o.y += dy * push;
     if (slide) { const tg = o.t > Math.PI ? 0.9 : -0.9; o.x += -dy * tg; o.y += dx * tg; }
   }
+}
+
+/* 点（带半径 r）是否落在硬掩体（岩石 / 集装箱）上：圆按距离算，集装箱换到局部坐标后按矩形算 */
+function hitSolid(q, x, y, r) {
+  if (q.type !== 'box') return hyp(x - q.x, y - q.y) < q.cr + r;
+  const rx = x - q.x, ry = y - q.y;
+  return Math.abs(rx * q.c + ry * q.s) < q.hw + r && Math.abs(-rx * q.s + ry * q.c) < q.hh + r;
+}
+/* 线段 (x0,y0)→(x1,y1) 是否穿过以 (cx,cy) 为圆心、半径 r 的圆 */
+function segCircle(x0, y0, x1, y1, cx, cy, r) {
+  const dx = x1 - x0, dy = y1 - y0, t = clamp(((cx - x0) * dx + (cy - y0) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+  return hyp(cx - (x0 + dx * t), cy - (y0 + dy * t)) < r;
+}
+/* 线段 (x0,y0)→(x0+dx,y0+dy) 是否穿过以原点为中心、半边长 hx / hy 的轴对齐矩形（平板法） */
+function segBox(x0, y0, dx, dy, hx, hy) {
+  let t0 = 0, t1 = 1;
+  if (Math.abs(dx) < 1e-6) { if (x0 < -hx || x0 > hx) return false; }
+  else { let a = (-hx - x0) / dx, b = (hx - x0) / dx; if (a > b) { const c = a; a = b; b = c; } if (a > t0) t0 = a; if (b < t1) t1 = b; if (t0 > t1) return false; }
+  if (Math.abs(dy) < 1e-6) { if (y0 < -hy || y0 > hy) return false; return true; }
+  let a = (-hy - y0) / dy, b = (hy - y0) / dy; if (a > b) { const c = a; a = b; b = c; }
+  return Math.max(t0, a) <= Math.min(t1, b);
+}
+/* 玩家到 (x, y) 的视线是否被硬掩体挡住：自动瞄准据此跳过躲在掩体后面的敌人，不朝墙开枪 */
+function losBlocked(x, y) {
+  const px = player.x, py = player.y, mx = (px + x) / 2, my = (py + y) / 2, hl = hyp(x - px, y - py) / 2 + 100;
+  for (let i = 0; i < solidsNear.length; i++) {
+    const q = solidsNear[i]; if (!q.hard) continue;
+    if (Math.abs(q.x - mx) > hl || Math.abs(q.y - my) > hl) continue;
+    if (q.type !== 'box') { if (segCircle(px, py, x, y, q.x, q.y, q.cr + 4)) return true; continue; }
+    const ox = px - q.x, oy = py - q.y, dx = x - px, dy = y - py;   // 线段两端换到箱体局部坐标
+    if (segBox(ox * q.c + oy * q.s, -ox * q.s + oy * q.c, dx * q.c + dy * q.s, -dx * q.s + dy * q.c, q.hw + 4, q.hh + 4)) return true;
+  }
+  return false;
+}
+
+/* 绕开集装箱（沿墙走）：敌人贴近某口箱子、且"敌人 → 玩家"的直线穿过这口箱子时，改为贴着箱面走，直到直线不再穿过箱子为止。
+   方向：刚被挡住时选"从靠玩家那一侧绕过去"（e.side，之后保持不变，避免在箱子正后方左右来回抖动）；
+   还在箱子长度范围内就沿长边走到端头，越过端头后顺着端面往前走——这样长边 → 端头 → 长边 能连续拐过直角 */
+const STEER = [0, 0];
+function steerBox(e) {
+  STEER[0] = 0; STEER[1] = 0;
+  const px = player.x - e.x, py = player.y - e.y, m = e.r + 28;
+  for (let i = 0; i < solidsNear.length; i++) {
+    const b = solidsNear[i]; if (b.type !== 'box') continue;
+    const rx = e.x - b.x, ry = e.y - b.y, u = rx * b.c + ry * b.s, v = -rx * b.s + ry * b.c;   // 敌人在箱体局部坐标里的位置
+    if (Math.abs(u) > b.hw + m || Math.abs(v) > b.hh + m) continue;                            // 离这口箱子还远
+    const ex = b.hw + e.r + 2, ey = b.hh + e.r + 2, pu = px * b.c + py * b.s, pv = -px * b.s + py * b.c;   // 敌人 → 玩家（局部坐标）
+    if (!segBox(u, v, pu, pv, ex, ey)) continue;                                               // 直线就能走到玩家：不用绕
+    if (!e.blk) e.side = u * pv - v * pu > 0 ? 1 : -1;
+    e.blk = true;
+    let ax = 0, ay = 0;
+    if (Math.abs(u) >= b.hw + e.r + 1) ay = (u >= 0 ? 1 : -1) * e.side;                        // 已越过端头：顺着端面走
+    else ax = (v >= 0 ? -1 : 1) * e.side;                                                       // 还在长度范围内：沿长边走到端头
+    STEER[0] = ax * b.c - ay * b.s; STEER[1] = ax * b.s + ay * b.c;
+    return 1;
+  }
+  e.blk = false;
+  return 0;
+}
+
+/* 子弹打在掩体上：金属集装箱迸火星，岩石扬起一团沙尘 */
+function coverHit(q, b) {
+  const metal = q.type === 'box', sp = hyp(b.vx, b.vy) || 1, nx = -b.vx / sp, ny = -b.vy / sp, n = metal ? 3 : 2;
+  for (let i = 0; i < n; i++) addPart(metal ? 'spark' : 'smoke', b.x, b.y, nx * rand(60, 200) - ny * rand(-120, 120), ny * rand(60, 200) + nx * rand(-120, 120),
+    metal ? rand(0.1, 0.2) : rand(0.25, 0.4), metal ? rand(1.6, 2.4) : rand(3, 5), metal ? (Math.random() < 0.5 ? '#FFF6A0' : '#FFD23F') : '#D9B377');
 }
 
 /* ============================================================
@@ -633,6 +768,7 @@ function updateAim(dt) {
     const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy; if (d2 > reach * reach) continue;
     const da = wrapA(Math.atan2(dy, dx) - base), lim = lim0 + Math.atan2(e.r, Math.sqrt(d2)) * 0.7;
     if (Math.abs(da) > lim) continue;
+    if (solidsNear.length && losBlocked(e.x, e.y)) continue;   // 躲在掩体后面的敌人不锁定
     const score = Math.abs(da) / lim + Math.sqrt(d2) / reach * 0.35;
     if (score < bestScore) { bestScore = score; best = Math.atan2(dy, dx); has = true; }
   }
@@ -657,8 +793,14 @@ function fire() {
     const off = w === 1 ? (i % 2 ? 2.8 : -2.8) : 0;   // 双管霰弹枪：左右两根枪管交替出弹
     spawnBullet(mx - sa * off, my + ca * off, p.aim + rand(-0.5, 0.5) * cone);
   }
-  p.recoil = 1; p.muzzle = 0.055; p.heat = Math.min(1, p.heat + (w === 2 ? 0.09 : 0.16)); p.spread = cone / DEG;
+  p.recoil = 1; p.muzzle = MUZ_T[w]; p.muzV = (Math.random() * 3) | 0; p.heat = Math.min(1, p.heat + (w === 2 ? 0.09 : 0.16)); p.spread = cone / DEG;
   addShake(g.shake);
+  // 枪口喷出的火星与硝烟（冲锋枪是电火花，不冒烟）
+  for (let i = 0, n = w === 1 ? 7 : w === 2 ? 2 : 4; i < n; i++) {
+    const a2 = p.aim + rand(-0.5, 0.5) * (w === 1 ? 1.2 : 1), s2 = rand(160, 420) * (w === 1 ? 1.3 : 1);
+    addPart('spark', mx, my, Math.cos(a2) * s2, Math.sin(a2) * s2, rand(0.08, 0.18), rand(1.6, 2.6), w === 2 ? (Math.random() < 0.5 ? '#5FF3FF' : '#FFFFFF') : (Math.random() < 0.5 ? '#FFD23F' : '#FFF6A0'));
+  }
+  if (w !== 2) addPart('smoke', mx + ca * 6, my + sa * 6, ca * rand(30, 70) - sa * rand(-20, 20), sa * rand(30, 70) + ca * rand(-20, 20), rand(0.35, 0.55), rand(4, 6), '#D9B377');
   // 抛壳（霰弹枪一次抛两枚红色弹壳）
   for (let i = 0, sh; i < (w === 1 ? 2 : 1); i++) {
     const a2 = p.aim + Math.PI / 2 + rand(-0.4, 0.4);
@@ -719,6 +861,9 @@ function updatePlayer(dt) {
   if (p.regen > 0 && p.hp < p.hpMax) p.hp = Math.min(p.hpMax, p.hp + p.regen * dt);
   if (p.shieldDelay > 0) p.shieldDelay -= dt;
   else if (p.shield < p.shieldMax) p.shield = Math.min(p.shieldMax, p.shield + p.shieldRate * dt);
+  // 血条 / 护盾条的掉血残影：回血时立即跟上；扣血后先停一下，再追到当前值
+  if (p.hpGhost < p.hp) p.hpGhost = p.hp; else if (p.hpGhost > p.hp) { if (p.hpGhostT > 0) p.hpGhostT -= dt; else p.hpGhost = Math.max(p.hp, p.hpGhost - dt * 110); }
+  if (p.shGhost < p.shield) p.shGhost = p.shield; else if (p.shGhost > p.shield) p.shGhost = Math.max(p.shield, p.shGhost - dt * 140);
   if (p.dashCd > 0) p.dashCd -= dt;
   if (p.swapT > 0) p.swapT -= dt;   // 换枪计时
 
@@ -758,7 +903,7 @@ function hurtPlayer(dmg, sx, sy, force) {
       for (let i = 0; i < 10; i++) { const a2 = i / 10 * TAU; addPart('spark', p.x + Math.cos(a2) * 20, p.y + Math.sin(a2) * 20, Math.cos(a2) * 260, Math.sin(a2) * 260, 0.3, 2.5, '#5FF3FF'); }
     }
   }
-  if (dmg > 0) p.hp -= dmg;
+  if (dmg > 0) { p.hp -= dmg; p.hpGhostT = 0.4; }
   p.shieldDelay = 4; p.iframes = 0.75; p.flash = 0.06;
   const dx = p.x - sx, dy = p.y - sy, d = hyp(dx, dy) || 1; p.kbx += dx / d * 280; p.kby += dy / d * 280;
   addShake(13); hurtFlash = 1;
@@ -769,7 +914,7 @@ function hurtPlayer(dmg, sx, sy, force) {
 
 function killPlayer() {
   const p = player; if (!p.alive) return;
-  p.alive = false; deathT = 1.5;
+  p.alive = false; deathT = 1.5; p.hpGhost = p.shGhost = 0;
   for (let i = 0; i < 26; i++) { const a = rand(TAU), s = rand(80, 420); addPart('chunk', p.x, p.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.5, 1), rand(3, 7), pick(['#C0281F', '#E9A21B', '#F2C9A0', '#8C3B1E']), rand(TAU)); }
   addDecal('splat', p.x, p.y, 22);
   addWord('SPLAT!', p.x, p.y - 30, '#E8452C', 52, null, 0);
@@ -799,7 +944,8 @@ function spawnEnemy(type, x, y, elite) {
   e.burnT = 0; e.burnTick = 0; e.burnDps = 0; e.burnAcc = 0; e.shockT = 0; e.armT = 0; e.awayT = 0;
   e.ang = Math.atan2(player.y - y, player.x - x); e.walk = rand(TAU); e.t = rand(TAU);
   e.wob = type === 0 ? rand(0.15, 0.45) : 0; e.wobF = rand(3, 6); e.wobP = rand(TAU);
-  e.arming = false; e.dk = 2; e.vis = false;
+  e.arming = false; e.dk = 2; e.vis = false; e.blk = false; e.side = 1;
+  if (solidsNear.length) resolveSolids(e, false);   // 刷怪点正好压在掩体上时，先把敌人推到掩体外
   enemies.push(e);
   for (let i = 0; i < 2; i++) addPart('smoke', x + rand(-8, 8), y + rand(-4, 8), rand(-40, 40), rand(-40, 20), rand(0.3, 0.45), rand(4, 6.5), '#D9B377');
 }
@@ -1011,6 +1157,7 @@ function updateEnemies(dt) {
     }
     let mx = dx, my = dy;
     if (e.wob) { const w = Math.sin(gameTime * e.wobF + e.wobP) * e.wob; mx = dx - dy * w; my = dy + dx * w; }
+    if (boxCount && steerBox(e)) { mx = STEER[0]; my = STEER[1]; }   // 直线去玩家的路被集装箱挡住：贴着箱面绕行
     e.x += (mx * sp + e.kx) * dt; e.y += (my * sp + e.ky) * dt;
     e.kx *= kf; e.ky *= kf;
     e.ang = lerpAng(e.ang, Math.atan2(dy, dx), dt * 9);
@@ -1084,10 +1231,13 @@ function bulletCollide(b) {
       }
     }
   }
-  for (let i = 0; i < solidsNear.length; i++) {
-    const q = solidsNear[i]; if (q.type !== 'barrel' || q.dead) continue;
-    const ddx = q.x - b.x, ddy = q.y - b.y;
-    if (ddx * ddx + ddy * ddy < (14 + b.r) * (14 + b.r)) { b.dead = true; igniteBarrel(q, 0.05); return true; }
+  for (let i = 0; i < solidsNear.length; i++) {   // 油桶：打中即引爆；岩石 / 集装箱（hard）：挡住子弹
+    const q = solidsNear[i]; if (q.dead) continue;
+    const ddx = q.x - b.x, ddy = q.y - b.y, rb = (q.br || q.cr + 3) + b.r;
+    if (ddx > rb || ddx < -rb || ddy > rb || ddy < -rb) continue;
+    if (q.type === 'barrel') { if (ddx * ddx + ddy * ddy < (14 + b.r) * (14 + b.r)) { b.dead = true; igniteBarrel(q, 0.05); return true; } continue; }
+    if (!q.hard || !hitSolid(q, b.x, b.y, b.r)) continue;
+    b.dead = true; coverHit(q, b); return true;
   }
   return false;
 }
@@ -1360,9 +1510,14 @@ function drawFlatProp(g, p) {
 function drawPropShadow(p) {
   ctx.fillStyle = 'rgba(30,15,5,0.26)';
   if (p.type === 'rock') {
-    const k = p.r / ROCK_BASE;
+    const big = !!p.big, k = p.r / (big ? BIG_ROCK : ROCK_BASE), ox = big ? 13 : 9, oy = big ? 16 : 11;
     ctx.beginPath();
-    PROP_SPR.rock[p.v].pts.forEach((q, i) => { const x = p.x + 9 + q[0] * k, y = p.y + 11 + q[1] * k; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    PROP_SPR[big ? 'bigrock' : 'rock'][p.v].pts.forEach((q, i) => { const x = p.x + ox + q[0] * k, y = p.y + oy + q[1] * k; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.closePath(); ctx.fill();
+  }
+  else if (p.type === 'box') {   // 集装箱：朝右下方向偏移的整块矩形投影（固定世界方向，不随箱体朝向转）
+    ctx.fillStyle = 'rgba(30,15,5,0.32)'; ctx.beginPath();
+    for (let i = 0; i < 4; i++) { const sx = (i === 0 || i === 3 ? -p.hw : p.hw) + 9, sy = (i < 2 ? -p.hh : p.hh) + 12, x = p.x + sx * p.c - sy * p.s, y = p.y + sx * p.s + sy * p.c; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
     ctx.closePath(); ctx.fill();
   }
   else if (p.type === 'barrel') { ctx.beginPath(); ctx.ellipse(p.x + 7, p.y + 9, 12.5, 8, 0, 0, TAU); ctx.fill(); }
@@ -1381,11 +1536,15 @@ function drawTallProp(g, p) {
     g.strokeStyle = '#15100B'; g.lineWidth = 1.8; g.beginPath();
     g.moveTo(x + p.r * 0.1, y - p.r * 0.7); g.lineTo(x - p.r * 0.05, y - p.r * 0.1); g.lineTo(x + p.r * 0.25, y + p.r * 0.35);
     g.moveTo(x - p.r * 0.05, y - p.r * 0.1); g.lineTo(x - p.r * 0.4, y + p.r * 0.15); g.stroke();
+    if (p.r > 44) {   // 掩体大岩块：多两道断口，让大面不至于太空
+      g.beginPath(); g.moveTo(x - p.r * 0.62, y - p.r * 0.15); g.lineTo(x - p.r * 0.3, y + p.r * 0.08); g.lineTo(x - p.r * 0.4, y + p.r * 0.5);
+      g.moveTo(x + p.r * 0.45, y - p.r * 0.3); g.lineTo(x + p.r * 0.28, y + p.r * 0.05); g.stroke();
+    }
     g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 1.4; g.beginPath();
     for (let i = 0; i < 4; i++) { g.moveTo(x - p.r * 0.1 + i * 7, y + p.r * 0.95); g.lineTo(x + p.r * 0.45 + i * 7, y + p.r * 0.2); }
     g.stroke();
     g.restore();
-    polyPath(g, p.pts, x, y); g.strokeStyle = '#000'; g.lineWidth = 3; g.stroke();
+    polyPath(g, p.pts, x, y); g.strokeStyle = '#000'; g.lineWidth = p.r > 44 ? 3.5 : 3; g.stroke();
   } else if (p.type === 'barrel') {
     circ(g, x, y, 12.5); g.fillStyle = '#D5372B'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 3; g.stroke();
     circ(g, x, y, 9); g.strokeStyle = '#F2C230'; g.lineWidth = 2.5; g.stroke();
@@ -1411,7 +1570,65 @@ function drawTallProp(g, p) {
   }
 }
 
-/* 场景物件精灵集：启动时一次性预生成固定数量的变体（碎石 6 / 轮胎 1 / 尸骨 3 / 废铁 5 / 岩块 4 / 油桶 1 / 仙人掌 2 / 路牌 2），
+/* 以中心为原点的长方形精灵画布（宽 w 高 h，放大 RES 倍） */
+function rectSprite(w, h, fn) { const cv = mkCanvas(w * RES, h * RES), g = cv.getContext('2d'); g.setTransform(RES, 0, 0, RES, w * RES / 2, h * RES / 2); g.lineJoin = 'round'; g.lineCap = 'round'; fn(g); return { cv, w, h }; }
+/* 废土集装箱顶视（局部坐标：长边沿 x，中心为原点）：瓦楞棱 + 赛璐璐明暗带 + 喷涂大字 + 端门锁杆 + 黄黑警示条 + 角件 + 锈斑弹孔，外圈 4px 黑描边 */
+const BOX_PAL = [
+  { b: '#C8552A', d: '#8E3516', l: '#E8804A' },   // 锈橙
+  { b: '#2A8C8C', d: '#176260', l: '#5CC0B8' },   // 青绿
+  { b: '#C9A227', d: '#8A6E12', l: '#EBCB5A' },   // 芥末黄
+  { b: '#B5322A', d: '#7C1C16', l: '#E05C4E' },   // 暗红
+  { b: '#6E7B8A', d: '#46515E', l: '#9AA8B6' },   // 灰蓝
+  { b: '#7A8438', d: '#4E550F', l: '#A5B15A' }    // 军绿
+];
+const BOX_WORDS = ['SCRAP', 'RUST', 'JUNK', 'HAUL', 'LOOT', 'BOOM', 'CARGO', 'DUST'];
+function drawContainer(g, L, Wd, pal, seed) {
+  const hw = L / 2, hh = Wd / 2, x0 = -hw, y0 = -hh, rng = mulberry32(seed), word = BOX_WORDS[Math.floor(rng() * BOX_WORDS.length)], dx0 = hw - 24;
+  g.lineJoin = 'miter'; g.miterLimit = 2;
+  g.fillStyle = pal.b; g.fillRect(x0, y0, L, Wd);
+  g.save(); g.beginPath(); g.rect(x0, y0, L, Wd); g.clip();
+  // 瓦楞棱：沿长度方向每 8px 一道凹槽（暗线 + 紧挨着的亮线），铺到端门为止
+  g.lineWidth = 1.5; g.strokeStyle = pal.d; g.beginPath();
+  for (let x = x0 + 7; x < dx0 - 2; x += 8) { g.moveTo(x, y0); g.lineTo(x, y0 + Wd); }
+  g.stroke();
+  g.lineWidth = 1; g.strokeStyle = pal.l; g.beginPath();
+  for (let x = x0 + 8.3; x < dx0 - 2; x += 8) { g.moveTo(x, y0); g.lineTo(x, y0 + Wd); }
+  g.stroke();
+  // 赛璐璐明暗：上沿亮带；下沿暗带里排一层排线
+  g.fillStyle = pal.l; g.fillRect(x0, y0, L, 4.5);
+  g.fillStyle = pal.d; g.fillRect(x0, hh - 8, L, 8);
+  g.strokeStyle = 'rgba(0,0,0,0.42)'; g.lineWidth = 1.2; g.beginPath();
+  for (let x = x0 - 10; x < hw + 10; x += 6) { g.moveTo(x, hh); g.lineTo(x + 8, hh - 8); }
+  g.stroke();
+  // 端门（右端 24px）：压暗 + 门缝 + 三根锁杆；左端一条黄黑警示条
+  g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(dx0, y0, 24, Wd);
+  g.fillStyle = '#111'; for (let i = 0; i < 3; i++) g.fillRect(dx0 + 4 + i * 7, y0 + 2.5, 2.6, Wd - 5);
+  g.strokeStyle = '#000'; g.lineWidth = 1.8; g.beginPath(); g.moveTo(dx0, y0); g.lineTo(dx0, y0 + Wd); g.moveTo(dx0, 0); g.lineTo(hw, 0); g.stroke();
+  g.save(); g.beginPath(); g.rect(x0, y0, 11, Wd); g.clip(); g.fillStyle = '#FFD23F'; g.fillRect(x0, y0, 11, Wd);
+  g.strokeStyle = '#111'; g.lineWidth = 4; g.beginPath(); for (let y = y0 - 12; y < hh + 12; y += 9) { g.moveTo(x0 - 3, y); g.lineTo(x0 + 14, y - 12); } g.stroke(); g.restore();
+  // 喷涂大字：字号按箱宽定，太长就缩到刚好放下
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.fillStyle = '#F4E9D3'; g.strokeStyle = '#000';
+  let fs = Math.round(Wd * 0.56); g.font = 'italic 900 ' + fs + 'px ' + FONT_IMPACT;
+  const tw = g.measureText(word).width; if (tw > L - 50) { fs = Math.floor(fs * (L - 50) / tw); g.font = 'italic 900 ' + fs + 'px ' + FONT_IMPACT; }
+  g.lineWidth = 2.6; g.strokeText(word, -7, 0.5); g.fillText(word, -7, 0.5);
+  // 锈斑（集中在上下边缘，外深内亮）+ 弹孔 + 划痕
+  for (let i = 0, n = 3 + Math.floor(rng() * 4); i < n; i++) {
+    const x = x0 + 14 + rng() * (L - 54), y = rng() < 0.5 ? y0 + 2 + rng() * 9 : hh - 2 - rng() * 9, pts = blobPts(rng, 7, 3.5 + rng() * 7, 0.45);
+    polyPath(g, pts, x, y); g.fillStyle = '#6B3A1E'; g.fill();
+    polyPath(g, pts.map(q => [q[0] * 0.55, q[1] * 0.55]), x - 0.6, y - 0.6); g.fillStyle = '#8E4A22'; g.fill();
+  }
+  for (let i = 0, m = 2 + Math.floor(rng() * 3); i < m; i++) { circ(g, x0 + 16 + rng() * (L - 50), y0 + 8 + rng() * (Wd - 16), 2.4); g.fillStyle = '#15110C'; g.fill(); g.lineWidth = 1.2; g.strokeStyle = pal.l; g.stroke(); }
+  g.strokeStyle = 'rgba(244,233,211,0.5)'; g.lineWidth = 1.1; g.beginPath();
+  for (let i = 0; i < 5; i++) { const x = x0 + 10 + rng() * (L - 50), y = y0 + 5 + rng() * (Wd - 10); g.moveTo(x, y); g.lineTo(x + 8 + rng() * 14, y - 3 + rng() * 6); }
+  g.stroke();
+  g.restore();
+  // 四角角件 + 外圈粗黑描边
+  g.fillStyle = '#1A1A1A'; g.strokeStyle = '#000'; g.lineWidth = 1.5;
+  for (const cx of [x0 + 1, hw - 9]) for (const cy of [y0 + 1, hh - 9]) { g.fillRect(cx, cy, 8, 8); g.strokeRect(cx, cy, 8, 8); }
+  g.lineJoin = 'miter'; g.lineWidth = 4; g.strokeRect(x0, y0, L, Wd);
+}
+
+/* 场景物件精灵集：启动时一次性预生成固定数量的变体（碎石 6 / 轮胎 1 / 尸骨 3 / 废铁 5 / 岩块 4 / 大岩块 3 / 油桶 1 / 仙人掌 2 / 路牌 2 / 集装箱 4 种尺寸 × 6 种涂装），
    区块只记录变体序号——游玩过程中不再创建任何画布，避免走过新区块时卡顿 */
 const PROP_SPR = {};
 function buildPropSprites() {
@@ -1432,13 +1649,31 @@ function buildPropSprites() {
     const pts = blobPts(mulberry32(777 + i * 91), 8, ROCK_BASE, 0.2), s = mk(ROCK_BASE + 8, g => drawTallProp(g, { type: 'rock', x: 0, y: 0, r: ROCK_BASE, pts }));
     s.pts = pts; P.rock.push(s);   // 记录轮廓顶点，用于绘制地面投影
   }
+  P.bigrock = [];
+  for (let i = 0; i < 3; i++) {   // 掩体大岩块：轮廓更硬（抖动更小）、多一个顶点
+    const pts = blobPts(mulberry32(1777 + i * 131), 9, BIG_ROCK, 0.16), s = mk(BIG_ROCK + 10, g => drawTallProp(g, { type: 'rock', x: 0, y: 0, r: BIG_ROCK, pts }));
+    s.pts = pts; P.bigrock.push(s);
+  }
   P.barrel = [mk(17, g => drawTallProp(g, { type: 'barrel', x: 0, y: 0 }))];
   P.cactus = [0, 1].map(v => mk(52, g => drawTallProp(g, { type: 'cactus', x: 0, y: 0, arm: v === 1 })));
   P.sign = [0, 1].map(v => mk(66, g => drawTallProp(g, { type: 'sign', x: 0, y: 0, rot: (v ? 1 : -1) * 0.2 })));
+  P.box = [];
+  BOX_VAR.forEach((V, si) => BOX_PAL.forEach((pal, ci) => P.box.push(rectSprite(V.L + 12, V.Wd + 12, g => drawContainer(g, V.L, V.Wd, pal, 9001 + si * 61 + ci * 7)))));
 }
-function propScale(p) { return p.type === 'rock' ? p.r / ROCK_BASE : p.sc || 1; }
+function propScale(p) { return p.type === 'rock' ? p.r / (p.big ? BIG_ROCK : ROCK_BASE) : p.sc || 1; }
 function drawPropCached(p) {
-  const s = PROP_SPR[p.type][p.v || 0], r = s.r * propScale(p);
+  if (p.type === 'box') {   // 集装箱：按朝向贴图；挡住玩家时变半透明，保证随时看得见自己
+    const s = PROP_SPR.box[p.v];
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    if (player.alive && state !== ST.START && player.y < p.sy) {   // 玩家先画、箱子后画（玩家在箱子后面）时才可能被挡
+      const rx = player.x - p.x, ry = player.y + 14 - p.y;          // 取"脚下的点"：它落进箱体范围 = 下半身被箱子盖住
+      if (Math.abs(rx * p.c + ry * p.s) < p.hw + 5 && Math.abs(-rx * p.s + ry * p.c) < p.hh + 5) ctx.globalAlpha = 0.4;
+    }
+    ctx.drawImage(s.cv, -s.w / 2, -s.h / 2, s.w, s.h);
+    ctx.restore();
+    return;
+  }
+  const s = (p.type === 'rock' && p.big ? PROP_SPR.bigrock : PROP_SPR[p.type])[p.v || 0], r = s.r * propScale(p);
   ctx.drawImage(s.cv, p.x - r, p.y - r, r * 2, r * 2);
 }
 
@@ -1597,7 +1832,7 @@ function drawBullets() {
 
 function buildStaticSprites() {
   RES = clamp(DPR * ZOOM, 1.25, 2.25);
-  buildDecalSprites(); buildPickupSprites(); buildBulletSprites(); buildPropSprites();
+  buildDecalSprites(); buildPickupSprites(); buildBulletSprites(); buildPropSprites(); buildMuzzleSprites();
   buildGhostSprites();
   // 粒子 / 残影用到的全部颜色在启动时预生成，运行中不再新建画布
   for (const c of ['#4A3C32', '#7A6A5A', '#D9B377']) smokeSprite(c);
@@ -1611,13 +1846,22 @@ function buildStaticSprites() {
    g 为目标上下文：敌人画法只在烘焙图集时调用一次，玩家每帧直接绘制。
    ============================================================ */
 const PPAL = { boot: '#3B2A1D', jacket: '#E9A21B', jacketDark: '#B5700C', strap: '#6B4226', pad: '#8C3B1E', skin: '#F2C9A0', hair: '#5B2C1A', band: '#2BB3C0', gun: '#4A4E57', gunDark: '#33363D', mag: '#22252B', stripe: '#FFD23F' };
-const MUZZLE_PTS = (() => { const p = []; for (let i = 0; i < 12; i++) { const a = i / 12 * TAU, v = i % 2 ? 0.42 : 1; p.push([Math.cos(a) * v * 13, Math.sin(a) * v * 13]); } return p; })();
 function spawnScale(e) { return e.spawnT > 0 ? 0.4 + 0.6 * (1 - e.spawnT / 0.25) : 1; }
 
-function playerArm(g, sy, hx, hy, F, S) {
-  g.strokeStyle = S(); g.lineWidth = 8; g.beginPath(); g.moveTo(-2, sy); g.lineTo(hx, hy); g.stroke();
-  g.strokeStyle = F(PPAL.jacket); g.lineWidth = 5; g.beginPath(); g.moveTo(-2, sy); g.lineTo(hx, hy); g.stroke();
-  g.fillStyle = F(PPAL.skin); g.strokeStyle = S(); g.lineWidth = 2.2; circ(g, hx, hy, 3.6); g.fill(); g.stroke();
+/* 两段式肢体（肩 → 肘 → 手）：先给两段整体描粗黑边，再叠上臂 / 前臂的平涂色；
+   上臂与前臂颜色不同时在肘部留一道袖口线。F / S 为取色函数（剪影模式下全部返回剪影色） */
+function limb(g, sx, sy, ex, ey, hx, hy, wUp, wFore, cUp, cFore, F, S, handR, handCol) {
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = S();
+  g.lineWidth = wUp + 3; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.stroke();
+  g.lineWidth = wFore + 3; g.beginPath(); g.moveTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+  g.strokeStyle = F(cUp); g.lineWidth = wUp; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.stroke();
+  g.strokeStyle = F(cFore); g.lineWidth = wFore; g.beginPath(); g.moveTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+  if (cUp !== cFore) {
+    const fx = hx - ex, fy = hy - ey, fl = hyp(fx, fy) || 1, nx = -fy / fl, ny = fx / fl, cw = wFore * 0.5 + 1;
+    g.strokeStyle = S(); g.lineWidth = 1.5; g.beginPath(); g.moveTo(ex + nx * cw, ey + ny * cw); g.lineTo(ex - nx * cw, ey - ny * cw); g.stroke();
+  }
+  if (handR > 0) { g.fillStyle = F(handCol || cFore); g.strokeStyle = S(); g.lineWidth = 2.2; circ(g, hx, hy, handR); g.fill(); g.stroke(); }
 }
 /* 手持武器（俯视，枪口朝 +x）：0 突击步枪（长枪管 + 弹匣 + 木托）1 双管霰弹枪（两根粗枪管 + 木托）2 元素冲锋枪（短枪管 + 青色线圈 + 能量罐）
    rx 为后坐位移；sil 为剪影色（冲刺残影 / 受击闪白），为空则正常上色 */
@@ -1664,13 +1908,14 @@ function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil, weapon) 
   }
   g.beginPath(); g.ellipse(0, 0, 12.5, 14, 0, 0, TAU); g.strokeStyle = S(); g.lineWidth = 3; g.stroke();
   g.strokeStyle = sil || PPAL.strap; g.lineWidth = 3.2; g.beginPath(); g.moveTo(-6, -12.5); g.lineTo(6, 12.5); g.stroke();
-  // 肩甲 + 战损划痕
-  for (let s = -1; s <= 1; s += 2) { g.beginPath(); g.arc(-2, s * 11.5, 5.6, 0, TAU); g.fillStyle = F(PPAL.pad); g.fill(); g.strokeStyle = S(); g.lineWidth = 2.5; g.stroke(); }
   if (!sil) { g.strokeStyle = '#F4E9D3'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-5, -14); g.lineTo(-1, -10); g.moveTo(-3, 12); g.lineTo(1, 10); g.stroke(); }
-  // 后手 → 枪 → 前手
-  playerArm(g, 10.5, 12 + rx, 3.5, F, S);
+  // 后手 → 枪 → 前手：两条两段式手臂（肩 → 肘 → 手），前手压在枪上，握点随枪一起后坐
+  const hxF = (w === 2 ? 16.5 : w === 1 ? 24 : 19) + rx;   // 前手握点：冲锋枪线圈座 / 霰弹枪护木 / 步枪枪管
+  limb(g, -1, 10, 3, 15.5, 12 + rx, 3.5, 6.5, 5, PPAL.jacket, PPAL.skin, F, S, 4);
   drawGun(g, w, rx, F, S, sil);
-  playerArm(g, -10.5, (w === 2 ? 15.5 : w === 1 ? 23 : 19) + rx, -1.5, F, S);   // 前手握在枪管 / 护木上
+  limb(g, -1, -10, 7.5, -14.5, hxF, -1.8, 6.5, 5, PPAL.jacket, PPAL.skin, F, S, 4);
+  // 肩甲压在手臂根部上 + 战损划痕
+  for (let s = -1; s <= 1; s += 2) { g.beginPath(); g.arc(-2, s * 11.5, 5.6, 0, TAU); g.fillStyle = F(PPAL.pad); g.fill(); g.strokeStyle = S(); g.lineWidth = 2.5; g.stroke(); }
   // 头
   g.beginPath(); g.arc(1.5, 0, 8.5, 0, TAU); g.fillStyle = F(PPAL.skin); g.fill();
   if (!sil) {
@@ -1683,17 +1928,91 @@ function drawPlayerBody(g, x, y, aim, walk, moving, recoil, scale, sil, weapon) 
   g.restore();
 }
 
+/* ============================================================
+   枪口焰：三把枪 × 3 个变体，启动时烘焙成位图（原点在枪口，朝向 +x）
+   突击步枪 = 橙 / 黄 / 白三层尖刺星；双管霰弹枪 = 前冲气浪 + 上下枪口两团火星 + 黑色冲击线；元素冲锋枪 = 小号青白电光星 + 电弧
+   ============================================================ */
+const MUZ_T = [0.06, 0.1, 0.05], MUZZLE = [[], [], []], MUZ_GLOW = [null, null];
+/* 尖刺星路径：n 个尖角，朝前（+x）的更长；seed 决定各尖角的长度抖动，所以每个变体形状都不同 */
+function burstPath(g, n, r1, r0, bias, seed) {
+  const rng = mulberry32(seed); g.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const a = i / (n * 2) * TAU, r = (i & 1 ? r0 * (0.8 + rng() * 0.4) : r1 * (0.7 + rng() * 0.6)) * (1 + bias * Math.cos(a));
+    if (i) g.lineTo(Math.cos(a) * r, Math.sin(a) * r); else g.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  g.closePath();
+}
+/* 由外到内叠 cols 层尖刺星，外两层带黑描边 */
+function drawBurst(g, cx, cy, n, r1, r0, bias, seed, cols, ol) {
+  g.save(); g.translate(cx, cy); g.lineJoin = 'round';
+  for (let k = 0; k < cols.length; k++) {
+    g.save(); g.rotate(k * 0.19);
+    burstPath(g, n, r1 * Math.pow(0.62, k), r0 * Math.pow(0.62, k), bias, seed + k * 13);
+    g.fillStyle = cols[k]; g.fill();
+    if (k < 2) { g.lineWidth = ol * (k ? 0.6 : 1); g.strokeStyle = '#000'; g.stroke(); }
+    g.restore();
+  }
+  g.restore();
+}
+function buildMuzzleSprites() {
+  const mk = (r, fn) => { const s = spriteCtx(r, RES); fn(s.g); return s; };
+  const warm = ['#FF7A1A', '#FFD23F', '#FFF6A0'];
+  for (let v = 0; v < 3; v++) {
+    MUZZLE[0].push(mk(42, g => {
+      drawBurst(g, 0, 0, 8, 23, 7.5, 0.4, 7100 + v * 37, warm, 3);   // 步枪射速高：焰形收着点，不遮准星附近的敌人
+      circ(g, 0, 0, 4.5); g.fillStyle = '#fff'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#000'; g.stroke();
+    }));
+    MUZZLE[1].push(mk(46, g => {
+      const L = 50 + v * 5;
+      g.save(); g.scale(0.6, 0.6);                                          // 整体缩到 60%：再大就遮住正前方的敌人
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(2, -6); g.lineTo(L * 0.58, -26); g.lineTo(L, 0); g.lineTo(L * 0.58, 26); g.lineTo(2, 6); g.closePath();   // 前冲的喇叭形气浪
+      g.fillStyle = '#FF7A1A'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#000'; g.stroke();
+      g.beginPath(); g.moveTo(2, -3.5); g.lineTo(L * 0.44, -13); g.lineTo(L * 0.7, 0); g.lineTo(L * 0.44, 13); g.lineTo(2, 3.5); g.closePath(); g.fillStyle = '#FFD23F'; g.fill();
+      g.strokeStyle = '#000'; g.lineWidth = 2.6; g.beginPath();                                   // 四散的黑色冲击线
+      for (let i = 0; i < 8; i++) { const a = -1.3 + i / 7 * 2.6, r0 = 40 + (i % 2) * 7 + v * 3, r1 = r0 + 12 + (i % 3) * 5; g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0 * 0.6); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1 * 0.6); }
+      g.stroke();
+      drawBurst(g, 3, -3.3, 7, 40, 11, 0.6, 7200 + v * 41, warm, 3);                              // 上下两根枪口各一团
+      drawBurst(g, 3, 3.3, 7, 40, 11, 0.6, 7300 + v * 53, warm, 3);
+      g.restore();
+    }));
+    MUZZLE[2].push(mk(38, g => {
+      drawBurst(g, 0, 0, 6, 16, 5.5, 0.7, 7400 + v * 29, ['#5FF3FF', '#FFFFFF'], 2.6);
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {                                                               // 三道细小电弧（黑边 + 白心）
+        const a = -0.7 + i * 0.7 + (v - 1) * 0.15, ca = Math.cos(a), sa = Math.sin(a), seg = [[11, 0], [15, i % 2 ? 2.4 : -2.4], [21, 0]];
+        for (const pass of [0, 1]) {
+          g.lineWidth = pass ? 1.5 : 3.8; g.strokeStyle = pass ? '#FFFFFF' : '#000'; g.beginPath();
+          seg.forEach((q, j) => { const x = ca * q[0] - sa * q[1], y = sa * q[0] + ca * q[1]; if (j) g.lineTo(x, y); else g.moveTo(x, y); });
+          g.stroke();
+        }
+      }
+    }));
+  }
+  // 枪口在地面上投下的一团光：暖色（火药）/ 青色（电）
+  const glow = (c0, c1) => { const r = 72, S = r * 2, cv = mkCanvas(S * 2, S * 2), g = cv.getContext('2d'), gr = g.createRadialGradient(S, S, 0, S, S, S); gr.addColorStop(0, c0); gr.addColorStop(1, c1); g.fillStyle = gr; g.fillRect(0, 0, S * 2, S * 2); return { cv, r }; };
+  MUZ_GLOW[0] = glow('rgba(255,214,110,0.42)', 'rgba(255,150,40,0)');
+  MUZ_GLOW[1] = glow('rgba(150,243,255,0.36)', 'rgba(60,200,255,0)');
+}
+/* 枪口焰贴图：k 为剩余寿命比例（1 → 0），v 为这一枪选中的变体；三帧换一个变体形成闪烁 */
+function drawMuzzleFlash(x, y, aim, w, k, v, sc) {
+  k = clamp(k, 0, 1);
+  const s = MUZZLE[w][(v + Math.floor((1 - k) * 3)) % 3], q = (0.8 + 0.5 * k) * sc;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(aim); ctx.scale(q * (0.9 + Math.random() * 0.2), q * (0.9 + Math.random() * 0.2));
+  ctx.drawImage(s.cv, -s.r, -s.r, s.r * 2, s.r * 2);
+  ctx.restore();
+}
+
 function drawPlayer() {
   const p = player;
   if (p.iframes > 0 && p.dashT <= 0 && Math.floor(uiT * 22) % 2 === 0) return;   // 受击无敌闪烁
-  drawPlayerBody(ctx, p.x, p.y, p.aim, p.walk, p.moving, p.recoil, 1, p.flash > 0 ? '#FFFFFF' : null, p.swapT > 0.11 ? p.prevW : p.weapon);   // 换枪前半段手里仍是旧枪
-  if (p.muzzle > 0) {
-    const wm = WEAPONS[p.weapon], k = clamp(p.muzzle / 0.055, 0.2, 1) * (p.weapon === 1 ? 1.8 : p.weapon === 2 ? 0.7 : 1), mx = p.x + Math.cos(p.aim) * wm.muzzle, my = p.y + Math.sin(p.aim) * wm.muzzle;   // 霰弹枪枪口火最大，冲锋枪最小
-    ctx.save(); ctx.translate(mx, my); ctx.rotate(p.aim + (Math.floor(uiT * 60) % 2) * 0.26); ctx.scale(k, k);
-    polyPath(ctx, MUZZLE_PTS); ctx.fillStyle = '#FFF6A0'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 2.5 / k; ctx.strokeStyle = '#000'; ctx.stroke();
-    circ(ctx, 0, 0, 4); ctx.fillStyle = '#FFD23F'; ctx.fill();
-    ctx.restore();
+  const w = p.swapT > 0.11 ? p.prevW : p.weapon, ca = Math.cos(p.aim), sa = Math.sin(p.aim), md = WEAPONS[p.weapon].muzzle;   // 换枪前半段手里仍是旧枪
+  if (p.muzzle > 0) {   // 枪口焰：先在地面铺一团枪口投光，画完角色后把火焰压在枪口上
+    const k = clamp(p.muzzle / MUZ_T[p.weapon], 0, 1);
+    blit(MUZ_GLOW[p.weapon === 2 ? 1 : 0], p.x + ca * (md - 8), p.y + sa * (md - 8), 0.55 + 0.3 * k, 0.5 * k);
   }
+  drawPlayerBody(ctx, p.x, p.y, p.aim, p.walk, p.moving, p.recoil, 1, p.flash > 0 ? '#FFFFFF' : null, w);
+  if (p.muzzle > 0) drawMuzzleFlash(p.x + ca * md, p.y + sa * md, p.aim, p.weapon, p.muzzle / MUZ_T[p.weapon], p.muzV, 1);
   if (p.shieldFx > 0) {
     ctx.globalAlpha = clamp(p.shieldFx / 0.3, 0, 1);
     ctx.beginPath(); ctx.arc(p.x, p.y, 23, 0, TAU); ctx.strokeStyle = '#000'; ctx.lineWidth = 5.5; ctx.stroke(); ctx.lineWidth = 3; ctx.strokeStyle = '#5FF3FF'; ctx.stroke();
@@ -1710,11 +2029,7 @@ function drawPsycho(g, e, sil) {
   const st = Math.sin(e.walk) * 6;
   g.strokeStyle = S(); g.lineWidth = 2.2; g.fillStyle = F('#5A3A22');
   for (let s = -1; s <= 1; s += 2) { rr(g, st * s - 4.5, s * 6 - 3, 9, 6, 2.5); g.fill(); g.stroke(); }
-  const arm = (sy, hx, hy) => {
-    g.strokeStyle = S(); g.lineWidth = 7; g.beginPath(); g.moveTo(-1, sy); g.lineTo(hx, hy); g.stroke();
-    g.strokeStyle = F('#E9CDA6'); g.lineWidth = 4; g.beginPath(); g.moveTo(-1, sy); g.lineTo(hx, hy); g.stroke();
-    g.fillStyle = F('#E9CDA6'); g.strokeStyle = S(); g.lineWidth = 2; circ(g, hx, hy, 3.2); g.fill(); g.stroke();
-  };
+  const arm = (sy, hx, hy) => limb(g, -1, sy, hx * 0.42, sy * 1.5, hx, hy, 4.6, 3.6, '#E9CDA6', '#E9CDA6', F, S, 3.2);   // 两段式手臂，肘部向外支起
   arm(9, 12, 7);
   g.save(); g.translate(12, 7); g.rotate(0.25 + Math.sin(e.walk * 0.5) * 0.5);
   g.strokeStyle = S(); g.lineWidth = 2; g.fillStyle = F('#7A5230'); rr(g, 0, -1.5, 15, 3, 1.5); g.fill(); g.stroke();
@@ -1756,12 +2071,7 @@ function drawBruiser(g, e, sil) {
   const st = Math.sin(e.walk) * 5;
   g.strokeStyle = S(); g.lineWidth = 2.5; g.fillStyle = F('#2F2A26');
   for (let s = -1; s <= 1; s += 2) { rr(g, st * s - 7, s * 13 - 5, 14, 10, 4); g.fill(); g.stroke(); }
-  const arm = sy => {
-    const hy = sy * 0.55;
-    g.strokeStyle = S(); g.lineWidth = 15; g.beginPath(); g.moveTo(-2, sy); g.lineTo(20, hy); g.stroke();
-    g.strokeStyle = F('#7E4430'); g.lineWidth = 10.5; g.beginPath(); g.moveTo(-2, sy); g.lineTo(20, hy); g.stroke();
-    g.fillStyle = F('#7B828A'); g.strokeStyle = S(); g.lineWidth = 2.6; circ(g, 20, hy, 7.5); g.fill(); g.stroke();
-  };
+  const arm = sy => limb(g, -2, sy, 8, sy * 1.16, 20, sy * 0.55, 10.5, 9, '#7E4430', '#7E4430', F, S, 7.5, '#7B828A');   // 粗壮的两段式手臂 + 铁拳
   arm(-17);
   g.beginPath(); g.ellipse(0, 0, 20, 23, 0, 0, TAU); g.fillStyle = F('#A5452B'); g.fill();
   if (!sil) { g.save(); g.clip(); g.fillStyle = '#7A2F1C'; g.fillRect(-24, 6, 48, 20); g.restore(); }
@@ -1794,8 +2104,7 @@ function drawBomber(g, e, sil) {
   for (let s = -1; s <= 1; s += 2) { rr(g, st * s - 3.5, s * 4.5 - 2.5, 7, 5, 2); g.fill(); g.stroke(); }
   for (let s = -1; s <= 1; s += 2) {
     const hx = 9 + fl * s * 0.4, hy = s * (8 + fl * 0.5);
-    g.strokeStyle = S(); g.lineWidth = 6; g.beginPath(); g.moveTo(-1, s * 7); g.lineTo(hx, hy); g.stroke();
-    g.strokeStyle = F('#F2C230'); g.lineWidth = 3.4; g.beginPath(); g.moveTo(-1, s * 7); g.lineTo(hx, hy); g.stroke();
+    limb(g, -1, s * 7, 5 + fl * s * 0.25, s * 11.5, hx, hy, 3.8, 3, '#F2C230', '#F2C230', F, S, 2.7, '#F7D9B5');
   }
   g.beginPath(); g.ellipse(0, 0, 8, 9.5, 0, 0, TAU); g.fillStyle = F('#F2C230'); g.fill();
   if (!sil) { g.save(); g.clip(); g.fillStyle = '#C98F14'; g.fillRect(-9, 3, 18, 7); g.restore(); }
@@ -1894,11 +2203,17 @@ function drawBurnGlows() {
   if (any) ctx.fill();
 }
 
+/* 敌人头顶的小血条：同款斜切平行四边形（黑描边 + 平涂 + 顶部亮带） */
 function barW(x, y, w, h, frac, col) {
-  ctx.fillStyle = '#000'; ctx.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
-  ctx.fillStyle = '#2B2118'; ctx.fillRect(x, y, w, h);
-  const fw = Math.round(w * clamp(frac, 0, 1));
-  if (fw > 0) { ctx.fillStyle = col; ctx.fillRect(x, y, fw, h); }
+  const sk = h * 0.8, fw = w * clamp(frac, 0, 1);
+  ctx.fillStyle = '#000'; pgram(ctx, x - 2, y - 2, w + 4, h + 4, sk + 1); ctx.fill();
+  ctx.fillStyle = '#2B2118'; pgram(ctx, x, y, w, h, sk); ctx.fill();
+  if (fw > 0.5) {
+    ctx.save(); pgram(ctx, x, y, w, h, sk); ctx.clip();
+    ctx.fillStyle = col; ctx.fillRect(x, y, sk + fw, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.38)'; ctx.fillRect(x, y, sk + fw, Math.ceil(h * 0.36));
+    ctx.restore();
+  }
 }
 
 /* 自爆预警 "!"（位图缓存） */
@@ -2068,7 +2383,7 @@ function drawZaps() {
 /* 冲刺残影：玩家剪影 × 12 个朝向 × 2 种颜色，启动时预生成 */
 const GHOST_SPR = [];
 function buildGhostSprites() {
-  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F'].map(col => [0, 1, 2].map(w => { const sp = spriteCtx(30, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col, w); return sp; }));   // 残影跟随手持武器：12 朝向 × 2 色 × 3 把枪
+  for (let k = 0; k < 12; k++) GHOST_SPR[k] = ['#49E6FF', '#FFD23F'].map(col => [0, 1, 2].map(w => { const sp = spriteCtx(42, 2.5); drawPlayerBody(sp.g, 0, 0, k / 12 * TAU, 0, true, 0, 1, col, w); return sp; }));   // 残影跟随手持武器：12 朝向 × 2 色 × 3 把枪（半径 42：连同枪口一起画全）
 }
 function drawGhosts() {
   for (let i = 0; i < ghosts.length; i++) {
@@ -2168,15 +2483,30 @@ function drawIcon(id, cx, cy, s, col, g) {
   g.restore();
 }
 
-/* 平涂进度条：黑描边 + 顶部亮条（赛璐璐上色） */
-function bar(x, y, w, h, frac, col, colLight) {
-  ctx.fillStyle = '#000'; rr(ctx, x - 3, y - 3, w + 6, h + 6, 5); ctx.fill();
-  ctx.fillStyle = '#2B2118'; ctx.fillRect(x, y, w, h);
-  const fw = Math.round(w * clamp(frac, 0, 1));
-  if (fw > 0) {
-    ctx.fillStyle = col; ctx.fillRect(x, y, fw, h);
-    if (colLight) { ctx.fillStyle = colLight; ctx.fillRect(x, y, fw, Math.ceil(h * 0.34)); }
+/* 斜切平行四边形路径：上下两条边错开 sk，左右两端是平行的斜边 */
+function pgram(g, x, y, w, h, sk) { g.beginPath(); g.moveTo(x + sk, y); g.lineTo(x + w, y); g.lineTo(x + w - sk, y + h); g.lineTo(x, y + h); g.closePath(); }
+/* 斜切平行四边形进度条（美漫风）：右下硬投影 + 黑粗描边 + 排线底纹 + 平涂色块（顶部亮带 / 底部暗带）+ 斜切分段刻线
+   frac 当前比例；ghost 为"残影比例"，大于 frac 时在末端多画一段米白色，表示刚被扣掉的那部分（省略则不画） */
+function bar(x, y, w, h, frac, col, colLight, ghost) {
+  frac = clamp(frac, 0, 1);
+  const sk = Math.min(h * 0.7, 13), fw = sk + (w - sk) * frac, tick = (w - sk) / Math.max(3, Math.round((w - sk) / 26));
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; pgram(ctx, x + 4, y + 4, w, h, sk); ctx.fill();          // 硬投影
+  ctx.save(); pgram(ctx, x, y, w, h, sk); ctx.clip();
+  ctx.fillStyle = '#2B2118'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);                         // 底槽
+  ctx.strokeStyle = 'rgba(244,233,211,0.12)'; ctx.lineWidth = 1.5; ctx.beginPath();             // 排线底纹
+  for (let tx = x - h; tx < x + w + h; tx += 6) { ctx.moveTo(tx, y + h); ctx.lineTo(tx + h, y); }
+  ctx.stroke();
+  if (ghost > frac) { ctx.fillStyle = '#FFF6E5'; ctx.fillRect(x + fw - 1, y, (w - sk) * (ghost - frac) + 1, h); }   // 掉血残影
+  if (fw > 0.5) {
+    ctx.fillStyle = col; ctx.fillRect(x - 2, y, fw + 2, h);
+    if (colLight) { ctx.fillStyle = colLight; ctx.fillRect(x - 2, y, fw + 2, Math.ceil(h * 0.34)); }               // 顶部亮带
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(x - 2, y + Math.round(h * 0.72), fw + 2, h);                    // 底部暗带
   }
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath();                                         // 斜切分段刻线
+  for (let tx = x + sk + tick; tx < x + w - 2; tx += tick) { ctx.moveTo(tx, y); ctx.lineTo(tx + 2, y); ctx.lineTo(tx + 2 - sk, y + h); ctx.lineTo(tx - sk, y + h); ctx.closePath(); }
+  ctx.fill();
+  ctx.restore();
+  pgram(ctx, x, y, w, h, sk); ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = '#000'; ctx.stroke();
 }
 
 function drawSpeaker(x, y, muted, g) {
@@ -2303,10 +2633,13 @@ function drawHUD(showTop) {
     drawIcon('vault', 0, 0, 19, p.alive ? '#FFD23F' : '#6B5A40', g);
     return s;
   }), ax + 29, ay + 29);
-  bar(bx, ay + 6, 230, 22, p.hp / p.hpMax, '#E8452C', '#FF8A6B');
-  txt(Math.ceil(p.hp) + ' / ' + p.hpMax, bx + 222, ay + 18, 15, '#fff', 'right', 4);
-  bar(bx, ay + 36, 230, 13, p.shieldMax ? p.shield / p.shieldMax : 0, '#35C8F0', '#A8ECFF');
-  txt('护盾 ' + Math.ceil(p.shield), bx + 4, ay + 64, 13, '#A8ECFF', 'left', 4);
+  bar(bx, ay + 6, 230, 22, p.hp / p.hpMax, '#E8452C', '#FF8A6B', p.hpGhost / p.hpMax);
+  txt(Math.ceil(p.hp) + ' / ' + p.hpMax, bx + 214, ay + 18, 15, '#fff', 'right', 4);
+  bar(bx, ay + 36, 230, 13, p.shieldMax ? p.shield / p.shieldMax : 0, '#35C8F0', '#A8ECFF', p.shieldMax ? p.shGhost / p.shieldMax : 0);
+  txt('护盾 ' + Math.ceil(p.shield), bx + 18, ay + 64, 13, '#A8ECFF', 'left', 4);
+  // "HP" 标签：贴在血条左端的斜切贴纸
+  pgram(ctx, bx - 12, ay + 4, 46, 27, 9); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+  txt('HP', bx + 11, ay + 18.5, 20, '#000', 'center', 0, FONT_IMPACT);
   // 顶部中央：等级 / 经验条 / 计时（升级界面时让位给标题）
   if (showTop) {
     const xw = clamp(W - 660, 150, 520), xx = W / 2 - xw / 2, xy = 18;
@@ -2322,7 +2655,7 @@ function drawHUD(showTop) {
   // 左下（自下而上）：武器槽（1 / 2 / 3 或滚轮切换）→ 当前武器名称 + 元素概率 → 弹药 → 已获得升级
   const wi = p.weapon, rl = p.rel[wi] > 0, by = H - 22, et = elemText(gun);
   for (let i = 0; i < 3; i++) blit(weaponSlotSprite(i, i === wi), 56 + i * 78, by - 22 - (i === wi ? 6 : 0));
-  txt(WEAPONS[wi].name + (et ? '  ·  ' + et : '') + (p.frenzyT > 0 ? '  [狂暴!]' : ''), 20, by - 58, 14, '#F4E9D3', 'left', 4);
+  txt(WEAPONS[wi].name + (et ? '  ·  ' + et : '') + (p.frenzyT > 0 ? '  [狂暴!]' : ''), 46, by - 58, 14, '#F4E9D3', 'left', 4);   // x 从 46 起：让开武器槽左上角的按键角标
   const frac = rl ? 1 - p.rel[wi] / gun.reload : p.ammo[wi] / p.mmax[wi];
   bar(20, by - 80, 232, 14, frac, rl ? '#F4F1E8' : '#FFD23F', rl ? '#5FF3FF' : '#FFF2A8');
   txt(rl ? '装填中…' : p.ammo[wi] + ' / ' + p.mmax[wi], 260, by - 73, 18, rl ? '#5FF3FF' : '#F4E9D3', 'left', 4, FONT_IMPACT);
@@ -2369,6 +2702,7 @@ function drawHUD(showTop) {
 /* ============================================================
    开始界面
    ============================================================ */
+let demoT = 0.5, demoRecoil = 0, demoMuzzle = 0, demoV = 0, demoW = -1;   // 角色预览的空枪试射：距下一枪的秒数 / 后坐 / 枪口焰剩余时间 / 变体 / 上帧展示的武器
 function drawStart() {
   const t = uiT, m = uiRects.mute, mh = ptInRect(mouse.x, mouse.y, m);
   if (mh) uiHover = true;
@@ -2385,9 +2719,12 @@ function drawStart() {
   ctx.fillStyle = '#E8452C'; rr(ctx, -58, -17, 116, 34, 6); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
   txt('弹幕幸存者', 0, 1, 17, '#fff', 'center', 4);
   ctx.restore();
-  // 角色预览：枪口跟随鼠标，每 2.4 秒轮换展示一把武器
+  // 角色预览：枪口跟随鼠标并定时空枪试射（后坐 + 枪口焰），每 2.4 秒轮换展示一把武器
   const px = W / 2, py = H * 0.485, ps = clamp(Math.min(W, H) / 330, 2, 2.9), showW = Math.floor(t / 2.4) % 3;
-  drawPlayerBody(ctx, px, py, Math.atan2(mouse.y - py, mouse.x - px), t * 5, false, 0, ps, null, showW);
+  const paim = Math.atan2(mouse.y - py, mouse.x - px), pca = Math.cos(paim), psa = Math.sin(paim), md = WEAPONS[showW].muzzle * ps, mx = px + pca * md, my = py + psa * md;
+  if (demoMuzzle > 0) blit(MUZ_GLOW[showW === 2 ? 1 : 0], mx - pca * 10, my - psa * 10, 1.1, 0.5 * demoMuzzle / MUZ_T[showW]);
+  drawPlayerBody(ctx, px, py, paim, t * 5, false, demoRecoil, ps, null, showW);
+  if (demoMuzzle > 0) drawMuzzleFlash(mx, my, paim, showW, demoMuzzle / MUZ_T[showW], demoV, ps * 0.85);
   // 武器介绍：三张小卡，与角色手里的枪同步高亮
   const cw = Math.min(250, (W - 80) / 3 - 20);
   for (let i = 0; i < 3; i++) {
@@ -2632,6 +2969,8 @@ function updateWorld(dt) {
   updateEnemies(dt);
   Grid.build(enemies);
   separate();
+  // 敌人互相推挤后可能被同伴挤进掩体，再推出一次（不带滑动），保证任何一帧都没人陷在掩体里
+  if (solidsNear.length) for (let i = 0; i < enemies.length; i++) { const e = enemies[i]; if (!e.dead) resolveSolids(e, false); }
   updateBullets(dt);
   updateDrops(dt);
   updateFuses(dt);
@@ -2654,6 +2993,11 @@ function update(dt) {
     cam.x += 24 * dt; cam.y += 10 * dt;
     Music.energy = 0.3;
     updateFx(dt);
+    // 角色预览跟着鼠标方向空枪试射，展示当前这把枪的枪口焰与后坐（不出声、不消耗任何东西）
+    demoRecoil = Math.max(0, demoRecoil - dt * 9); if (demoMuzzle > 0) demoMuzzle -= dt;
+    const dw = Math.floor(uiT / 2.4) % 3; if (dw !== demoW) { demoW = dw; demoT = 0.35; }
+    demoT -= dt;
+    if (demoT <= 0) { demoT = dw === 1 ? 1.1 : dw === 2 ? 0.26 : 0.42; demoRecoil = 1; demoMuzzle = MUZ_T[dw]; demoV = (Math.random() * 3) | 0; }
   } else if (state === ST.PLAY) {
     Music.energy = clamp(0.3 + gameTime / 420, 0.3, 1);
     if (hintT > 0) hintT -= dt;
@@ -2757,6 +3101,7 @@ window.__wm = {
   up(key, ri) { applyUpgrade(key, ri === undefined ? 0 : ri); },
   weapon(i) { if (i === undefined) return player.weapon; switchWeapon(i); },   // 不传参数返回当前武器序号；传 0/1/2 切换
   gun: () => gun,                                                             // 当前武器的实际数值
+  solids: () => solidsNear.map(p => ({ type: p.type, x: p.x, y: p.y, cr: p.cr, hw: p.hw, hh: p.hh, rot: p.rot, hard: !!p.hard })),   // 玩家附近的固体障碍（掩体测试用）
   tick(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 60); render(); }   // 手动推帧（不依赖 requestAnimationFrame）
 };
 
