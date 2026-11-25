@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>废土疯潮 WASTELAND MAYHEM</title>
+<title>废土疯潮 v1.3.1 · WASTELAND MAYHEM</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a120b; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
@@ -42,6 +42,12 @@ function poolKill(arr, free, i) { const o = arr[i]; arr[i] = arr[arr.length - 1]
 
 const FONT_IMPACT = 'Impact,"Arial Black","Helvetica Neue",Arial,sans-serif';
 const FONT_UI = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Heiti SC",sans-serif';
+
+/* 版本号：每次改动上线前手动更新（VERSION 末位递增，BUILD_DATE 填当天），三处要一致——这里、<title>、以及提交说明。
+   显示在浏览器标签页标题、开始界面右下角、暂停 / 结算界面和调试信息里，用来确认线上是不是最新版。
+   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 */
+const VERSION = 'v1.3.1', BUILD_DATE = '2026-11-25';
+document.title = '废土疯潮 ' + VERSION + ' · WASTELAND MAYHEM';
 
 /* ============================================================
    画布
@@ -1682,6 +1688,9 @@ function txt(s, x, y, size, col, align, ol, font) {
   if (ol) { ctx.lineJoin = 'round'; ctx.lineWidth = ol; ctx.strokeStyle = '#000'; ctx.strokeText(s, x, y); }
   ctx.fillStyle = col; ctx.fillText(s, x, y);
 }
+/* 版本号角标：右下角小字（开始 / 暂停 / 结算界面） */
+function drawVersion() { txt(VERSION + '  ·  ' + BUILD_DATE, W - 14, H - 12, 12, '#CDB89A', 'right', 3, FONT_IMPACT); }
+
 /* 美漫标题字：粗黑描边 + 硬投影 + 斜体 */
 function comicText(s, x, y, size, col, ol, sh, rot) {
   ctx.save();
@@ -3222,6 +3231,7 @@ function drawStart() {
   ctx.restore();
   txt('点击按钮，或按 回车 / 空格', W / 2, byy + 56, 16, '#F4E9D3', 'center', 4);
   txt(TIPS[Math.floor(t / 4) % TIPS.length], W / 2, H - 22, 15, '#FFE9B0', 'center', 4);
+  drawVersion();
 }
 /* ============================================================
    升级三选一
@@ -3378,6 +3388,7 @@ function drawPause() {
   txt('继续游戏', W / 2, byy + bh / 2 + 1, 28, '#000', 'center', 0);
   txt('按 P / ESC / 空格 继续', W / 2, byy + bh + 30, 16, '#F4E9D3', 'center', 4);
   txt('M 静音    ·    ` 调试信息', W / 2, byy + bh + 58, 14, '#CDB89A', 'center', 4);
+  drawVersion();
 }
 
 function drawOver() {
@@ -3427,6 +3438,7 @@ function drawOver() {
   txt('再来一次', W / 2, byy + bh / 2 + 1, 30, '#000', 'center', 0);
   ctx.restore();
   txt('按 R / 回车 / 空格，或点击按钮', W / 2, byy + bh + 28, 15, '#F4E9D3', 'center', 4);
+  drawVersion();
 }
 
 /* ============================================================
@@ -3482,7 +3494,7 @@ function drawSpeedLines(k) {
 }
 
 function drawDebug() {
-  const lines = ['FPS ' + fps.toFixed(0) + '   render x' + DPR.toFixed(2), 'enemies ' + enemies.length + '  bullets ' + bullets.length + '  parts ' + parts.length,
+  const lines = [VERSION + ' (' + BUILD_DATE + ')   FPS ' + fps.toFixed(0) + '   render x' + DPR.toFixed(2), 'enemies ' + enemies.length + '  bullets ' + bullets.length + '  parts ' + parts.length,
     'drops ' + drops.length + '  draw ' + drawList.length + '  chunks ' + chunks.size, 'time ' + gameTime.toFixed(1) + '  state ' + state];
   ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(10, 96, 340, 84);
   ctx.font = '13px monospace'; ctx.fillStyle = '#7CFC7C'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -3654,6 +3666,7 @@ function frame(now) {
 
 /* 调试 / 自动化测试接口（不影响正常游玩） */
 window.__wm = {
+  version: VERSION + ' ' + BUILD_DATE,
   get state() { return state; }, get time() { return gameTime; }, get fps() { return fps; },
   player: () => player, enemies: () => enemies, stats: () => stats,
   counts: () => ({ enemies: enemies.length, bullets: bullets.length, parts: parts.length, drops: drops.length, decals: decals.length }),
