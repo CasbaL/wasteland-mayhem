@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>废土疯潮 v1.4.1 · WASTELAND MAYHEM</title>
+<title>废土疯潮 v1.4.2 · WASTELAND MAYHEM</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a120b; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
@@ -45,8 +45,8 @@ const FONT_UI = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Heiti SC",sans-
 
 /* 版本号：每次改动上线前手动更新（VERSION 末位递增，BUILD_DATE 填当天），三处要一致——这里、<title>、以及提交说明。
    显示在浏览器标签页标题、开始界面右下角、暂停 / 结算界面和调试信息里，用来确认线上是不是最新版。
-   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场）· v1.4.1 自爆怪爆炸只伤到范围内的玩家 */
-const VERSION = 'v1.4.1', BUILD_DATE = '2026-11-25';
+   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场）· v1.4.1 自爆怪爆炸只伤到范围内的玩家 · v1.4.2 震屏按距离衰减，设置里可调震动强度 */
+const VERSION = 'v1.4.2', BUILD_DATE = '2026-11-25';
 document.title = '废土疯潮 ' + VERSION + ' · WASTELAND MAYHEM';
 
 /* ============================================================
@@ -404,7 +404,8 @@ const TIPS = [
   '提示：腐蚀专克重装铁桶兵：被酸液覆盖的敌人受到的一切伤害 +25%。',
   '提示：拿了泰迪尔之后，换弹就是把手里的枪扔出去炸人，残弹越多越疼。',
   '提示：每 3 分钟会有关底 Boss 登场——地面红圈和红线都是预警，冲刺期间无敌可以硬穿。',
-  '提示：击倒关底 Boss 会掉秘藏宝箱：必出稀有以上词条，还能回复 30% 生命。'
+  '提示：击倒关底 Boss 会掉秘藏宝箱：必出稀有以上词条，还能回复 30% 生命。',
+  '提示：觉得震屏太厉害？开始界面右上角的齿轮（或暂停菜单的「设置」）里可以把震动调弱。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -710,7 +711,20 @@ function coverHit(q, b) {
 /* ============================================================
    特效数据：震屏 / 粒子 / 跳字 / 拟声词 / 弹坑 / 闪电
    ============================================================ */
-function addShake(a) { cam.shake = Math.min(cam.shake + a, 26); }
+/* ---- 震屏 ----
+   addShake(a)：cam.shake 是震动幅度（像素）。单次震动 = 自身强度；还在震时又来一次只小幅叠加，不再一路叠到上限
+   addShakeAt(x, y, a)：带位置的震动源（爆炸 / 砸地 / 撞掩体 / 击杀），离玩家越远越弱 */
+const SHAKE_MAX = 26;
+function addShake(a) {
+  const s = cam.shake;
+  cam.shake = Math.min(SHAKE_MAX, Math.max(s, a) + (s > 0.5 ? a * 0.3 : 0));
+}
+/* 距离衰减：240px 内全强度，之外按平方衰减，约两倍视距外完全感觉不到（v1.4.2 之前爆炸无视距离，在地图任何角落都是满强度） */
+function shakeFalloff(x, y) {
+  const d = hyp(x - player.x, y - player.y), far = Math.max(vw, vh) * 2.2, t = clamp(1 - (d - 240) / (far - 240), 0, 1);
+  return t * t;
+}
+function addShakeAt(x, y, a) { const f = shakeFalloff(x, y); if (f > 0.01) addShake(a * f); return f; }
 
 function addPart(type, x, y, vx, vy, life, size, col, rot) {
   if (parts.length >= MAX_P) return null;
@@ -924,7 +938,7 @@ function fire() {
   }
   if (g.kick) {   // 高后坐力：把玩家往后顶，镜头跟着后蹬，并顿一帧增加分量
     p.kbx -= ca * g.kick; p.kby -= sa * g.kick;
-    cam.kx = -ca * 9; cam.ky = -sa * 9; hitStop = Math.max(hitStop, 0.03);
+    cam.kx = -ca * 9 * shakeScale; cam.ky = -sa * 9 * shakeScale; hitStop = Math.max(hitStop, 0.03);   // 镜头后蹬同样乘以设置里的震动强度
     for (let i = 0; i < 3; i++) addPart('smoke', mx - ca * 4, my - sa * 4, ca * rand(30, 90) - sa * rand(-30, 30), sa * rand(30, 90) + ca * rand(-30, 30), rand(0.3, 0.5), rand(4, 6.5), '#7A6A5A');
   }
   SFX.shoot(w); if (g.rocket) SFX.rocket();
@@ -1141,8 +1155,9 @@ function pickType() {
   return 2;
 }
 
+let spawnHold = false;   // 测试用：强制暂停常规刷怪（见 __wm.holdSpawns）
 function updateSpawns(dt) {
-  if (boss || vaultPending) return;   // Boss 登场后常规刷怪 / 波次暂停，直到拾取秘藏宝箱
+  if (boss || vaultPending || spawnHold) return;   // Boss 登场后常规刷怪 / 波次暂停，直到拾取秘藏宝箱
   if (gameTime >= bossNextT && player.alive) { startBossFight(); return; }   // 每 3 分钟一个关底 Boss
   spawnT -= dt;
   if (spawnT <= 0) {
@@ -1278,7 +1293,7 @@ function rocketBlast(b, hx, hy, hit) {
   booms.push({ x: hx, y: hy, r: R, t: 0, max: 0.3, rot: rand(TAU), pts: starPts(9, 0.42), ring: false });
   for (let i = 0; i < 3; i++) addPart('smoke', hx + rand(-8, 8), hy + rand(-8, 8), rand(-60, 60), rand(-80, -10), rand(0.3, 0.5), rand(5, 8), '#7A6A5A');
   for (let i = 0; i < 7; i++) { const a = rand(TAU), s = rand(140, 340); addPart('spark', hx, hy, Math.cos(a) * s, Math.sin(a) * s, rand(0.15, 0.3), 2.2, i % 2 ? '#FFD23F' : '#FF8A1E'); }
-  addShake(3.5); addWord('BOOM!', hx, hy - 14, '#FF9A1F', 30, 'rocket', 420); SFX.blast();
+  addShakeAt(hx, hy, 3.5); addWord('BOOM!', hx, hy - 14, '#FF9A1F', 30, 'rocket', 420); SFX.blast();
 }
 /* 连锁闪电：命中的目标先被电到，再依次跳向 150px 内最近的未命中敌人（最多 chains 跳）；每跳 50% 伤害并减速 60% 持续 0.4 秒 */
 function chainLightning(src, base, chains) {
@@ -1326,10 +1341,10 @@ function killEnemy(e, dx, dy) {
   addDecal('splat', e.x, e.y, e.r * (e.elite ? 1.5 : 1.1));
   if ((Math.random() < 0.22 && e.type === 2) || e.elite) addWord(pick(KILL_WORDS), e.x, e.y - e.r - 10, '#FFD23F', e.elite ? 40 : 26, 'kill', 450);
   dropXp(e);
-  if (e.elite) { spawnDrop('chest', e.x, e.y); hitStop = Math.max(hitStop, 0.06); addShake(8); }
+  if (e.elite) { spawnDrop('chest', e.x, e.y); if (addShakeAt(e.x, e.y, 8) > 0.4) hitStop = Math.max(hitStop, 0.06); }
   else if (Math.random() < 0.005) spawnDrop('chest', e.x, e.y);
   if (Math.random() < (player.hp < player.hpMax * 0.4 ? 0.07 : 0.03)) spawnDrop('hp', e.x, e.y);
-  addShake(e.type === 2 ? 3 : 1);
+  addShakeAt(e.x, e.y, e.type === 2 ? 3 : 1);
 }
 
 /* 爆炸：对范围内敌人造成衰减伤害（可误伤），范围内的玩家同样受伤（dmgP > 0 时），可引爆附近油桶。tag 为结算页上的伤害来源（默认"环境爆炸"） */
@@ -1352,7 +1367,7 @@ function explode(x, y, radius, dmgE, dmgP, big, tag) {
   for (let i = 0; i < n; i++) { const a = rand(TAU), s = rand(60, big ? 340 : 230); addPart('smoke', x + Math.cos(a) * 14, y + Math.sin(a) * 14, Math.cos(a) * s, Math.sin(a) * s, rand(0.35, 0.6), rand(6, big ? 14 : 10), i % 3 ? '#4A3C32' : '#7A6A5A'); }
   for (let i = 0; i < 12; i++) { const a = rand(TAU), s = rand(200, 520); addPart('spark', x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.45), 2.5, i % 2 ? '#FFD23F' : '#FF8A1E'); }
   addDecal('scorch', x, y, radius * 0.7);
-  addShake(big ? 18 : 12); hitStop = Math.min(0.12, Math.max(hitStop, big ? 0.05 : 0.035));
+  if (addShakeAt(x, y, big ? 18 : 12) > 0.4) hitStop = Math.min(0.12, Math.max(hitStop, big ? 0.05 : 0.035));   // 离玩家越远震得越轻；远处爆炸也不顿帧
   addWord(big ? 'KA-BOOM!' : 'BOOM!', x, y - 20, '#FF9A1F', big ? 56 : 44, 'boom', 120);
   SFX.boom();
 }
@@ -1395,7 +1410,7 @@ function tedioreBlast(t) {
     addPart('smoke', t.x + Math.cos(a) * 12, t.y + Math.sin(a) * 12, Math.cos(a) * s, Math.sin(a) * s - 30, rand(0.5, 0.85), rand(10, 16), i % 3 ? '#4A3C32' : '#7A6A5A');
   }
   for (let i = 0; i < 16; i++) { const a = rand(TAU), s = rand(220, 560); addPart('spark', t.x, t.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.45), 2.6, i % 2 ? '#FFD23F' : '#FF8A1E'); }
-  addDecal('scorch', t.x, t.y, R * 0.7); addShake(14); hitStop = Math.max(hitStop, 0.04);
+  addDecal('scorch', t.x, t.y, R * 0.7); if (addShakeAt(t.x, t.y, 14) > 0.4) hitStop = Math.max(hitStop, 0.04);
   addWord('KABOOM!', t.x, t.y - 24, '#FF9A1F', 60, 'tediore', 300); SFX.boom();
 }
 
@@ -1492,7 +1507,7 @@ function updateBoss(e, dt) {
 /* 狂暴（第二阶段）：顿帧 + 震屏 + 白闪，炸掉一层外壳 */
 function bossEnrage(e) {
   e.phase = 2;
-  hitStop = Math.max(hitStop, 0.07); addShake(16); whiteFlash = Math.max(whiteFlash, 0.45);
+  if (addShakeAt(e.x, e.y, 16) > 0.4) hitStop = Math.max(hitStop, 0.07); whiteFlash = Math.max(whiteFlash, 0.45);
   addWord('ENRAGED!', W / 2, H * 0.27, '#FF3B2E', 68, null, 0, true);
   addWord('狂暴化！', W / 2, H * 0.27 + 60, '#FFD23F', 44, null, 0, true);
   toast(BOSS_DEFS[e.kind].name + ' 进入狂暴阶段！', '#FF5A3C');
@@ -1513,7 +1528,7 @@ function crushProp(q, big) {
   const box = q.type === 'box', n = big ? 12 : 7, cols = box ? ['#C8552A', '#2A8C8C', '#6E7B8A', '#46515E'] : q.type === 'cactus' ? ['#4E9B4B', '#35743A'] : ['#5E5245', '#94836C', '#3B2A1D'];
   for (let i = 0; i < n; i++) { const a = rand(TAU), s = rand(40, big ? 300 : 180); addPart('chunk', q.x + rand(-14, 14), q.y + rand(-14, 14), Math.cos(a) * s, Math.sin(a) * s - 40, rand(0.4, 0.8), rand(3, 7), pick(cols), rand(TAU)); }
   for (let i = 0; i < 4; i++) addPart('smoke', q.x + rand(-12, 12), q.y + rand(-12, 12), rand(-40, 40), rand(-60, -10), rand(0.4, 0.7), rand(6, 10), '#7A6A5A');
-  if (!big) addShake(2.5);
+  if (!big) addShakeAt(q.x, q.y, 2.5);
 }
 
 /* ---- Boss 弹幕（高爆炮弹 / 能量球 / 羽毛飞刀）：撞到玩家或硬掩体即结算，冲刺无敌期间直接穿过去 ---- */
@@ -1559,7 +1574,8 @@ function bossBlast(x, y, R, dmg) {
   for (let i = 0; i < 5; i++) { const a = rand(TAU), s = rand(40, 150); addPart('smoke', x + Math.cos(a) * 10, y + Math.sin(a) * 10, Math.cos(a) * s, Math.sin(a) * s - 30, rand(0.4, 0.65), rand(7, 11), i % 3 ? '#4A3C32' : '#7A6A5A'); }
   for (let i = 0; i < 9; i++) { const a = rand(TAU), s = rand(180, 440); addPart('spark', x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.18, 0.38), 2.4, i % 2 ? '#FFD23F' : '#FF8A1E'); }
   addDecal('scorch', x, y, R * 0.7);
-  addShake(7); hitStop = Math.max(hitStop, 0.025);
+  addShakeAt(x, y, 7);
+  if (p.alive && hyp(p.x - x, p.y - y) < R + 60) hitStop = Math.max(hitStop, 0.025);   // 只有炸点贴近玩家才顿帧：地毯轰炸不再把世界拖成慢动作
   addWord('KABOOM!', x, y - 18, '#FF9A1F', 44, 'kboss', 140); SFX.boom();
 }
 
@@ -1624,8 +1640,8 @@ function updateBossCar(e, dt) {
     }
     if (wall || e.chgD >= 780) {   // 撞上掩体 / 冲到头：眩晕 1 秒
       e.st = 'stun'; e.stT = 0; e.kx = Math.cos(e.chgA) * 190; e.ky = Math.sin(e.chgA) * 190;
-      if (wall) { addShake(18); hitStop = Math.max(hitStop, 0.05); addWord('CRUNCH!', e.x + Math.cos(e.chgA) * 40, e.y + Math.sin(e.chgA) * 40 - 20, '#FFD23F', 48, null, 0); }
-      else { addShake(9); addWord('SCREECH!', e.x, e.y - e.r - 24, '#F4E9D3', 32, null, 0); }
+      if (wall) { if (addShakeAt(e.x, e.y, 18) > 0.4) hitStop = Math.max(hitStop, 0.05); addWord('CRUNCH!', e.x + Math.cos(e.chgA) * 40, e.y + Math.sin(e.chgA) * 40 - 20, '#FFD23F', 48, null, 0); }
+      else { addShakeAt(e.x, e.y, 9); addWord('SCREECH!', e.x, e.y - e.r - 24, '#F4E9D3', 32, null, 0); }
       for (let i = 0; i < 8; i++) addPart('smoke', e.x + rand(-20, 20), e.y + rand(-20, 20), rand(-90, 90), rand(-110, -10), rand(0.4, 0.7), rand(5, 9), '#7A6A5A');
       SFX.boom();
     }
@@ -1660,7 +1676,7 @@ function carpetMortar(e, n) {
 function fanSalvo(e, n) {
   const base = Math.atan2(player.y - e.y, player.x - e.x);
   for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.21; spawnEB('shell', e.x + Math.cos(a) * 42, e.y + Math.sin(a) * 42, a, 265, { r: 8, dmg: 22 * bossDmg(e), life: 2.5 }); }
-  e.trec = 1; addShake(3); SFX.cannon();
+  e.trec = 1; addShakeAt(e.x, e.y, 3); SFX.cannon();
 }
 
 /* ====================== Boss 2 W4R-D3N ======================
@@ -1774,7 +1790,7 @@ function bossSlam(e) {
   for (let i = 0; i < 16; i++) { const a = i / 16 * TAU + rand(-0.2, 0.2), s = rand(180, 460); addPart('chunk', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s - 80, rand(0.5, 0.9), rand(3, 7), pick(['#5E5245', '#94836C', '#3B2A1D']), rand(TAU)); }
   for (let i = 0; i < 8; i++) addPart('smoke', e.x + rand(-30, 30), e.y + rand(-30, 30), rand(-70, 70), rand(-90, -10), rand(0.5, 0.9), rand(7, 12), '#7A6A5A');
   addDecal('scorch', e.x, e.y, 110);
-  addShake(15); hitStop = Math.max(hitStop, 0.05);
+  if (addShakeAt(e.x, e.y, 15) > 0.4) hitStop = Math.max(hitStop, 0.05);
   addWord('SLAM!', e.x, e.y - 40, '#FFD23F', 60, null, 0);
   SFX.slam();
   if (e.phase === 2 && !e.over) { e.over = true; e.rate = 1.3; addWord('元素过载！', W / 2, H * 0.27, '#8CFF3A', 48, null, 0, true); toast('血翼变异体：元素过载，攻击频率 +30%', '#8CFF3A'); }   // 落地后元素过载
@@ -1796,7 +1812,7 @@ function killBoss(e) {
   for (let i = 0; i < 14; i++) addPart('smoke', e.x + rand(-30, 30), e.y + rand(-30, 30), rand(-120, 120), rand(-160, -20), rand(0.7, 1.2), rand(9, 15), i % 2 ? '#2A2420' : '#4A3C32');
   for (let i = 0; i < 30; i++) { const a = rand(TAU), s = rand(220, 640); addPart('spark', e.x, e.y, Math.cos(a) * s, Math.sin(a) * s, rand(0.3, 0.7), 2.8, i % 2 ? '#FFD23F' : '#FF8C00'); }
   addDecal('scorch', e.x, e.y, 150);
-  addShake(26); whiteFlash = 0.9;
+  addShakeAt(e.x, e.y, 26); whiteFlash = 0.9;
   addWord('BOSS DEFEATED!', W / 2, H * 0.24, '#FFD23F', 68, null, 0, true);
   for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + 0.35; addWord('LOOT!', W / 2 + Math.cos(a) * W * 0.31, H * 0.64 + Math.sin(a) * H * 0.26, '#FFD23F', rand(46, 64), null, 0, true); }   // 满屏金色 LOOT!：绕着画面中心均匀排开，不压标题
   toast('击败 ' + D.name + ' · 拾取秘藏宝箱领取奖励', '#FFD23F');
@@ -2116,6 +2132,12 @@ function startGame() {
 function handleKey(code) {
   if (code === 'KeyM') { toggleMute(); return; }
   if (code === 'Backquote') { debug = !debug; return; }
+  if (settings) {   // 设置面板：ESC / P / 空格 / 回车返回，左右方向键以 10% 微调震动
+    if (code === 'Escape' || code === 'KeyP' || code === 'Space' || code === 'Enter' || code === 'NumpadEnter') closeSettings();
+    else if (code === 'ArrowLeft') { setShake(shakeScale - 0.1); SFX.select(); }
+    else if (code === 'ArrowRight') { setShake(shakeScale + 0.1); SFX.select(); }
+    return;
+  }
   if (state === ST.START) { if (code === 'Enter' || code === 'NumpadEnter' || code === 'Space') startGame(); return; }
   if (state === ST.PLAY) {
     if (bossIntro > 0 && code !== 'KeyP' && code !== 'Escape') return;   // Boss 定格出场期间除了暂停不能操作
@@ -2132,15 +2154,22 @@ function handleKey(code) {
 
 function handleClick() {
   const mx = mouse.x, my = mouse.y;
+  if (settings) { clickSettings(mx, my); return; }   // 设置面板打开时只响应面板里的控件
   if (ptInRect(mx, my, muteRect())) { toggleMute(); return; }
-  if (state === ST.START) { if (ptInRect(mx, my, uiRects.start)) startGame(); return; }
+  if (state === ST.START) {
+    if (ptInRect(mx, my, gearRect())) { openSettings(); return; }
+    if (ptInRect(mx, my, uiRects.start)) startGame(); return;
+  }
   if (state === ST.LEVEL) {
     if (picking) return;
     for (let i = 0; i < cards.length; i++) if (ptInRect(mx, my, cards[i])) { chooseCard(i); return; }
     if (ptInRect(mx, my, uiRects.skip)) chooseCard(3);
     return;
   }
-  if (state === ST.PAUSE) { if (ptInRect(mx, my, uiRects.resume)) setPause(false); return; }
+  if (state === ST.PAUSE) {
+    if (ptInRect(mx, my, uiRects.pset)) { openSettings(); return; }
+    if (ptInRect(mx, my, uiRects.resume)) setPause(false); return;
+  }
   if (state === ST.OVER && overT > 0.6 && ptInRect(mx, my, uiRects.over)) startGame();
 }
 /* ============================================================
@@ -3752,6 +3781,10 @@ function drawIcon(id, cx, cy, s, col, g) {
     case 'vault':
       poly([[-0.9, -0.6], [0, -0.05], [0.9, -0.6], [0.55, 0.7], [0, 0.22], [-0.55, 0.7]], col, 0.16);
       break;
+    case 'gear':   // 齿轮：8 个齿 + 轮体（中孔透出按钮底色）
+      for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + 0.39; line(Math.cos(a) * 0.42, Math.sin(a) * 0.42, Math.cos(a) * 0.95, Math.sin(a) * 0.95, 0.34); }
+      ring(0, 0, 0.5, 0.36);
+      break;
     case 'skull':
       circ(g, 0, -0.15, 0.62); g.fillStyle = '#F4F1E8'; g.fill(); g.lineWidth = 0.16; g.strokeStyle = '#000'; g.stroke();
       rr(g, -0.38, 0.35, 0.76, 0.42, 0.14); g.fillStyle = '#F4F1E8'; g.fill(); g.stroke();
@@ -3849,6 +3882,15 @@ function muteButtonSprite(muted, hover) {
     const s = spriteCtx(24, UI_R()), g = s.g;
     g.fillStyle = hover ? '#FFE23F' : '#F4E9D3'; rr(g, -20, -20, 40, 40, 8); g.fill(); g.lineWidth = 3.5; g.strokeStyle = '#000'; g.stroke();
     drawSpeaker(-1, 0, muted, g);
+    return s;
+  });
+}
+/* 开始界面右上角的齿轮按钮：打开设置 */
+function settingsButtonSprite(hover) {
+  return cachedSprite('gear|' + hover, () => {
+    const s = spriteCtx(24, UI_R()), g = s.g;
+    g.fillStyle = hover ? '#FFE23F' : '#F4E9D3'; rr(g, -20, -20, 40, 40, 8); g.fill(); g.lineWidth = 3.5; g.strokeStyle = '#000'; g.stroke();
+    drawIcon('gear', 0, 0, 13, '#231A12', g);
     return s;
   });
 }
@@ -3979,7 +4021,7 @@ function drawHUD(showTop) {
   }
   ctx.globalAlpha = 1;
   // 开局操作提示
-  if (hintT > 0) {
+  if (hintT > 0 && state !== ST.PAUSE) {   // 暂停时不画：会顶到暂停菜单的「设置」按钮
     ctx.globalAlpha = clamp(hintT / 2, 0, 1);
     txt('WASD 移动 · 鼠标瞄准 · 1 / 2 / 3 或滚轮 换枪 · 空格 / 右键 冲刺无敌 · R 装填', W / 2, H - 172, 17, '#F4E9D3', 'center', 5);
     ctx.globalAlpha = 1;
@@ -4146,6 +4188,9 @@ function drawStart() {
   if (mh) uiHover = true;
   ctx.fillStyle = 'rgba(20,12,6,0.42)'; ctx.fillRect(0, 0, W, H);
   blit(muteButtonSprite(Snd.muted, mh), m.x + 19, m.y + 20);
+  const gr = gearRect(), gh = ptInRect(mouse.x, mouse.y, gr);   // 齿轮：设置（屏幕震动强度 / 音效）
+  if (gh) uiHover = true;
+  blit(settingsButtonSprite(gh), gr.x + 19, gr.y + 20);
   // 标题
   const ts = clamp(Math.min(W / 7.2, H / 5.6), 60, 150), ty = H * 0.16;
   ctx.save(); ctx.translate(W / 2, ty); ctx.rotate(-0.035);
@@ -4354,6 +4399,13 @@ function drawPause() {
   txt('继续游戏', W / 2, byy + bh / 2 + 1, 28, '#000', 'center', 0);
   txt('按 P / ESC / 空格 继续', W / 2, byy + bh + 30, 16, '#F4E9D3', 'center', 4);
   txt('M 静音    ·    ` 调试信息', W / 2, byy + bh + 58, 14, '#CDB89A', 'center', 4);
+  // 设置：屏幕震动强度 / 音效
+  const sw = 190, sh = 48, sx = W / 2 - sw / 2, sy = byy + bh + 82;
+  uiRects.pset = { x: sx, y: sy, w: sw, h: sh };
+  const shv = ptInRect(mouse.x, mouse.y, uiRects.pset); if (shv) uiHover = true;
+  ctx.fillStyle = shv ? '#FFF2A8' : '#F4E9D3'; rr(ctx, sx, sy, sw, sh, 10); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
+  drawIcon('gear', sx + 32, sy + sh / 2, 13, '#231A12');
+  txt('设置', sx + 58, sy + sh / 2 + 1, 23, '#000', 'left', 0);
   drawVersion();
 }
 
@@ -4405,6 +4457,109 @@ function drawOver() {
   ctx.restore();
   txt('按 R / 回车 / 空格，或点击按钮', W / 2, byy + bh + 28, 15, '#F4E9D3', 'center', 4);
   drawVersion();
+}
+
+/* ============================================================
+   设置面板：屏幕震动强度（0–100%，自动保存在浏览器本地）+ 音效开关
+   入口：开始界面右上角的齿轮按钮、暂停菜单的「设置」按钮。面板打开期间世界冻结
+   ============================================================ */
+let shakeScale = 1;   // 整体震动倍率：所有镜头震动（含霰弹枪后坐）都乘以它，0 = 完全不震
+try { const v = parseFloat(localStorage.getItem('wm-shake')); if (v >= 0 && v <= 1) shakeScale = Math.round(v * 10) / 10; } catch (err) {}
+function setShake(v) {
+  shakeScale = Math.round(clamp(v, 0, 1) * 10) / 10;   // 以 10% 为一档
+  try { localStorage.setItem('wm-shake', String(shakeScale)); } catch (err) {}
+}
+let settings = false, setTest = 0, setHoverWas = false;   // settings：面板是否打开 · setTest：「试震一下」按钮的高亮计时
+const SET_PRESETS = [[0, '关'], [0.3, '30%'], [0.6, '60%'], [1, '100%']];
+const setRects = { back: null, test: null, sound: null, left: null, right: null, track: null, presets: [] };
+function openSettings() { settings = true; setTest = 0; SFX.select(); }
+function closeSettings() { settings = false; SFX.hover(); }
+function gearRect() { return { x: W - 106, y: 18, w: 40, h: 40 }; }   // 开始界面右上角的齿轮按钮（静音按钮左边）
+/* 指针是否落在滑轨上（band 为纵向容差：点击 24px，按住拖动时放宽到 44px） */
+function onSlider(mx, my, band) {
+  const tr = setRects.track;
+  return !!tr && Math.abs(my - tr.cy) < band && mx > tr.x - 16 && mx < tr.x + tr.w + 16;
+}
+function updateSettings(dt) {
+  if (setTest > 0) setTest -= dt;
+  let hv = !!(setRects.back && ptInRect(mouse.x, mouse.y, setRects.back));
+  for (const r of [setRects.test, setRects.sound, setRects.left, setRects.right]) if (r && ptInRect(mouse.x, mouse.y, r)) hv = true;
+  for (const r of setRects.presets) if (ptInRect(mouse.x, mouse.y, r)) hv = true;
+  if (onSlider(mouse.x, mouse.y, 24)) hv = true;
+  if (hv && !setHoverWas) SFX.hover();
+  setHoverWas = hv;
+  if (mouse.down && onSlider(mouse.x, mouse.y, 44)) setShake((mouse.x - setRects.track.x) / setRects.track.w);   // 按住拖动滑块
+}
+function clickSettings(mx, my) {
+  if (ptInRect(mx, my, setRects.back)) { closeSettings(); return; }
+  if (ptInRect(mx, my, setRects.left)) { setShake(shakeScale - 0.1); SFX.select(); return; }
+  if (ptInRect(mx, my, setRects.right)) { setShake(shakeScale + 0.1); SFX.select(); return; }
+  for (let i = 0; i < SET_PRESETS.length; i++) if (ptInRect(mx, my, setRects.presets[i])) { setShake(SET_PRESETS[i][0]); SFX.select(); return; }
+  if (onSlider(mx, my, 24)) { setShake((mx - setRects.track.x) / setRects.track.w); SFX.select(); return; }   // 点在滑轨上：按下即生效（极短的点击也不会漏掉），按住可以继续拖
+  if (ptInRect(mx, my, setRects.sound)) { toggleMute(); return; }
+  if (ptInRect(mx, my, setRects.test)) { addShake(12); setTest = 0.6; }   // 试震一下：相当于身边不远处炸了一下
+}
+function drawSettings() {
+  const cw = 620, ch = 470, k = Math.min(1, (W - 24) / cw, (H - 24) / ch), ox = W / 2 - cw * k / 2, oy = H / 2 - ch * k / 2;
+  const R = (cx, cy, w, h) => ({ x: ox + (cx - w / 2) * k, y: oy + (cy - h / 2) * k, w: w * k, h: h * k });   // 卡片坐标 → 屏幕矩形（点击检测用）
+  const inR = r => ptInRect(mouse.x, mouse.y, r);
+  ctx.fillStyle = 'rgba(20,12,6,0.72)'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(k, k);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; rr(ctx, 9, 11, cw, ch, 18); ctx.fill();                                  // 硬投影 + 纸面
+  ctx.fillStyle = '#F4E9D3'; rr(ctx, 0, 0, cw, ch, 18); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = '#000'; ctx.stroke();
+  comicText('设 置', cw / 2, 56, 54, '#FFD23F', 11, 6);
+  ctx.fillStyle = '#000'; ctx.fillRect(28, 92, cw - 56, 3);
+  let any = false;
+  const chip = (cx, cy, label, on, hv) => {   // 选项贴纸：选中 = 黄底黑字，悬停 = 亮黄描边
+    ctx.fillStyle = on ? '#FFD23F' : '#E6D9BE'; rr(ctx, cx - 60, cy - 20, 120, 40, 8); ctx.fill();
+    ctx.lineWidth = on ? 4 : 3; ctx.strokeStyle = hv && !on ? '#FFE23F' : '#000'; ctx.stroke();
+    txt(label, cx, cy + 1, on ? 20 : 18, on ? '#000' : '#3A2E20', 'center', 0, FONT_IMPACT);
+  };
+  // ---- 屏幕震动强度 ----
+  const pct = Math.round(shakeScale * 100);
+  txt('屏幕震动强度', 36, 128, 24, '#000', 'left', 0);
+  txt(pct + '%', cw - 36, 128, 34, pct === 0 ? '#7A5A2A' : '#B3261E', 'right', 0, FONT_IMPACT);
+  setRects.presets.length = 0;
+  for (let i = 0; i < SET_PRESETS.length; i++) {   // 预设：关 / 30% / 60% / 100%
+    const r = R(36 + 60 + i * 142, 180, 120, 40), hv = inR(r); any = any || hv; setRects.presets.push(r);
+    chip(96 + i * 142, 180, SET_PRESETS[i][1], Math.abs(SET_PRESETS[i][0] - shakeScale) < 1e-6, hv);
+  }
+  const tx = 116, tw = cw - 232, ty = 244, tr = R(tx, ty, tw, 40);   // 滑块：◀ [======o------] ▶
+  tr.x = ox + tx * k; tr.w = tw * k; tr.cy = oy + ty * k; setRects.track = tr;   // 滑轨只记横向范围和中心线（拖动时按横坐标取值）
+  setRects.left = R(58, ty, 44, 44); setRects.right = R(cw - 58, ty, 44, 44);
+  rr(ctx, tx - 3, ty - 11, tw + 6, 22, 11); ctx.fillStyle = '#E6D9BE'; ctx.fill();
+  if (pct > 0) { rr(ctx, tx - 3, ty - 11, tw * shakeScale + 6, 22, 11); ctx.fillStyle = '#E8452C'; ctx.fill(); }
+  ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+  for (const [cx, dir] of [[58, 1], [cw - 58, -1]]) {   // 左右微调按钮（到头时变淡）
+    const hv = inR(dir > 0 ? setRects.left : setRects.right), off = dir > 0 ? pct <= 0 : pct >= 100; any = any || hv;
+    ctx.globalAlpha = off ? 0.35 : 1;
+    ctx.fillStyle = hv && !off ? '#FFE23F' : '#F4E9D3'; rr(ctx, cx - 22, ty - 22, 44, 44, 9); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 8 * dir, ty - 11); ctx.lineTo(cx + 8 * dir, ty + 11); ctx.lineTo(cx - 8 * dir, ty); ctx.closePath(); ctx.fillStyle = '#000'; ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  const kx = tx + tw * shakeScale;   // 滑块把手
+  circ(ctx, kx, ty, 17); ctx.fillStyle = '#FFD23F'; ctx.fill(); ctx.lineWidth = 3.5; ctx.strokeStyle = '#000'; ctx.stroke();
+  circ(ctx, kx - 4, ty - 5, 4); ctx.fillStyle = '#FFF6E5'; ctx.fill();
+  any = any || onSlider(mouse.x, mouse.y, 24);   // 悬停在滑轨上：光标高亮
+  setRects.test = R(128, 306, 184, 40); {   // 「试震一下」：按当前强度震一下，马上能感觉出来合不合适
+    const hv = inR(setRects.test), on = setTest > 0 || hv; any = any || hv;
+    ctx.fillStyle = on ? '#FFD23F' : '#231A12'; rr(ctx, 36, 286, 184, 40, 9); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
+    txt('试震一下', 128, 307, 19, on ? '#000' : '#FFD23F', 'center', 0);
+  }
+  txt('近处的爆炸震得重，远处很轻 · 调整后自动保存', 240, 306, 15, '#7A5A2A', 'left', 0);
+  // ---- 音效 ----
+  ctx.fillStyle = '#000'; ctx.fillRect(28, 344, cw - 56, 3);
+  txt('音效', 36, 376, 24, '#000', 'left', 0);
+  setRects.sound = R(cw - 96, 376, 120, 40); { const hv = inR(setRects.sound); any = any || hv; chip(cw - 96, 376, Snd.muted ? '关' : '开', !Snd.muted, hv); }
+  txt('ESC / P / 空格 返回   ·   ← → 微调震动', 150, 376, 14, '#7A5A2A', 'left', 0);
+  // ---- 返回 ----
+  setRects.back = R(cw / 2, 434, 220, 44); {   // 硬投影 + 纸面
+    const hv = inR(setRects.back); any = any || hv;
+    ctx.fillStyle = hv ? '#FFF2A8' : '#FFD23F'; rr(ctx, cw / 2 - 110, 412, 220, 44, 10); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke();
+    txt('返回', cw / 2, 435, 24, '#000', 'center', 0);
+  }
+  ctx.restore();
+  if (any) uiHover = true;
 }
 
 /* ============================================================
@@ -4462,7 +4617,7 @@ function drawSpeedLines(k) {
 function drawDebug() {
   const lines = [VERSION + ' (' + BUILD_DATE + ')   FPS ' + fps.toFixed(0) + '   render x' + DPR.toFixed(2), 'enemies ' + enemies.length + '  bullets ' + bullets.length + '  parts ' + parts.length,
     'drops ' + drops.length + '  draw ' + drawList.length + '  chunks ' + chunks.size, 'time ' + gameTime.toFixed(1) + '  state ' + state,
-    'boss ' + (boss ? BOSS_DEFS[boss.kind].en + ' P' + boss.phase + ' ' + boss.st + ' ' + Math.round(boss.hp) + '/' + boss.hpMax : 'none') + '  eb ' + ebullets.length + '  warns ' + warns.length + '  next ' + Math.round(bossNextT - gameTime)];
+    'boss ' + (boss ? BOSS_DEFS[boss.kind].en + ' P' + boss.phase + ' ' + boss.st + ' ' + Math.round(boss.hp) + '/' + boss.hpMax : 'none') + '  eb ' + ebullets.length + '  warns ' + warns.length + '  next ' + Math.round(bossNextT - gameTime) + '  shake ' + cam.shake.toFixed(1) + 'x' + shakeScale.toFixed(1)];
   ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(10, 96, 440, 102);
   ctx.font = '13px monospace'; ctx.fillStyle = '#7CFC7C'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   lines.forEach((l, i) => ctx.fillText(l, 18, 112 + i * 18));
@@ -4494,12 +4649,17 @@ function update(dt) {
   uiT += dt;
   mouse.wx = cam.x + (mouse.x - W / 2) / ZOOM; mouse.wy = cam.y + (mouse.y - H / 2) / ZOOM;
   // 屏幕震动（位移 + 轻微旋转），线性衰减
-  if (cam.shake > 0) { cam.shake = Math.max(0, cam.shake - dt * 34); cam.sx = rand(-cam.shake, cam.shake); cam.sy = rand(-cam.shake, cam.shake); cam.rot = rand(-cam.shake, cam.shake) * 0.0011; }
+  if (cam.shake > 0) {   // 震动幅度 × 设置里的整体震动强度（0 = 完全不震）
+    cam.shake = Math.max(0, cam.shake - dt * 34); const k = cam.shake * shakeScale;
+    cam.sx = rand(-k, k); cam.sy = rand(-k, k); cam.rot = rand(-k, k) * 0.0011;
+  }
   else { cam.sx = cam.sy = cam.rot = 0; }
   const kc = Math.exp(-dt * 14); cam.kx *= kc; cam.ky *= kc;   // 霰弹枪后坐力的镜头后蹬回弹
   if (hurtFlash > 0) hurtFlash = Math.max(0, hurtFlash - dt * 2.4);
   if (whiteFlash > 0) whiteFlash = Math.max(0, whiteFlash - dt * 2.2);
   if (speedT > 0) speedT -= dt;
+
+  if (settings) { updateSettings(dt); return; }   // 设置面板打开：世界冻结（震动照常衰减，「试震一下」可以预览）
 
   if (state === ST.START) {
     cam.x += 24 * dt; cam.y += 10 * dt;
@@ -4616,6 +4776,7 @@ function render() {
     if (boss && bossIntro > 0) drawBossSplash();   // Boss 定格出场：盖住 HUD，但压在暂停 / 升级界面下面
     if (state === ST.LEVEL) drawLevelUp(); else if (state === ST.PAUSE) drawPause(); else if (state === ST.OVER) drawOver();
   }
+  if (settings) drawSettings();   // 设置面板：盖在开始 / 暂停界面上
   drawWords(true);
   if (debug) drawDebug();
   if (!(boss && bossIntro > 0)) drawCursor();   // 定格出场期间不画准星
@@ -4648,24 +4809,30 @@ window.__wm = {
   boss: () => boss,
   bossInfo: () => boss ? { kind: boss.kind, phase: boss.phase, st: boss.st, stT: +boss.stT.toFixed(3), hp: boss.hp, hpMax: boss.hpMax, x: boss.x, y: boss.y, nB: boss.nB, lA: boss.lA, lDir: boss.lDir, lSpd: boss.lSpd, rate: boss.rate, age: boss.age, cycle: boss.cycle, txA: boss.txA, el: boss.el, sx: boss.sx, sy: boss.sy } : null,
   bossState: () => ({ intro: bossIntro, slow: bossSlow, n: bossN, next: bossNextT, wave: nextWaveT, badass: nextBossT, vaultPending, vaultMode }),
-  bossNow(kind) { if (boss) return null; bossNextT = gameTime; startBossFight(kind); return boss; },   // 立刻让指定序号的 Boss 登场
+  bossNow(kind) { if (boss) return null; bossNextT = gameTime; startBossFight(kind); return boss; }, // 立刻让指定序号的 Boss 登场
   skipIntro() { if (bossIntro > 0) bossIntro = 0.001; },
   bossSeq(n) { bossN = n; },
-  nextBossAt(tt) { bossNextT = tt; },                                                        // 指定下一个 Boss 的登场时刻（测试用）                                                                  // 指定下一个 Boss 的登场序号（血量按序号递增；标定用）
+  nextBossAt(tt) { bossNextT = tt; },                                                                // 指定下一个 Boss 的登场时刻（测试用）；登场序号决定血量，见 bossSeq
   bossHurt(n) { if (boss) applyDamage(boss, n, { silent: true }); },
-  clearLoot() { drops.length = 0; xpCount = 0; vaultPending = false; },                // 清掉地面的掉落物并解除刷怪暂停（测试用）
-  clearEnemies() { for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].boss) enemies.splice(i, 1); },   // 清掉全部小兵，只留 Boss（测试用）
+  clearLoot() { drops.length = 0; xpCount = 0; vaultPending = false; },                              // 清掉地面的掉落物并解除刷怪暂停（测试用）
+  clearEnemies() { for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].boss) enemies.splice(i, 1); fuses.length = 0; },// 清掉全部小兵和未爆的引信，只留 Boss（测试用）
+  holdSpawns(on) { spawnHold = !!on; },                                                                         // 暂停 / 恢复常规刷怪（测试用：自然刷怪会干扰测量）
   clearShots() { ebullets.length = 0; },
-  autoAim(n) { for (let i = 0; i < n && boss; i++) { mouse.x = W / 2 + (boss.x - cam.x) * ZOOM; mouse.y = H / 2 + (boss.y - cam.y) * ZOOM; update(1 / 60); } },   // 准星始终对准 Boss 推 n 帧（不渲染；血量标定用）                                                   // 清掉 Boss 弹幕（测试用）
-  loot: () => drops.map(d => ({ type: d.type, v: d.v, tier: d.tier })),                        // 地面上的掉落物
-  vaultCards: () => { openLevelUp(true); return cards.map(c => [c.key, (UPS[c.key] || EXTRA[c.key]).tier]); },                          // 直接开一次宝箱强化并返回三张卡（统计用）
+  autoAim(n) { for (let i = 0; i < n && boss; i++) { mouse.x = W / 2 + (boss.x - cam.x) * ZOOM; mouse.y = H / 2 + (boss.y - cam.y) * ZOOM; update(1 / 60); } }, // 准星始终对准 Boss 推 n 帧（不渲染；只在 Boss 存在时才推帧）
+  loot: () => drops.map(d => ({ type: d.type, v: d.v, tier: d.tier })),                              // 地面上的掉落物
+  vaultCards: () => { openLevelUp(true); return cards.map(c => [c.key, (UPS[c.key] || EXTRA[c.key]).tier]); }, // 直接开一次宝箱强化并返回三张卡（统计用）
   pending: () => pendingLevels,
   ebullets: () => ebullets.map(b => ({ kind: b.kind, x: b.x, y: b.y, a: b.a, dmg: b.dmg, life: b.life })),
   warns: () => warns.map(w => ({ x: w.x, y: w.y, r: w.r, t: w.t, max: w.max, dmg: w.dmg })),
   zones: () => zones.map(z => ({ x: z.x, y: z.y, a: z.a, half: z.half, len: z.len, t: z.t, max: z.max, el: z.el })),
   rings: () => rings.map(r => ({ x: r.x, y: r.y, r: r.r, maxR: r.maxR, hit: r.hit })),
   drones: () => enemies.filter(e => e.drone && !e.dead).map(e => ({ x: e.x, y: e.y, arming: e.arming, hp: e.hp })),
+  booms: () => booms.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), r: Math.round(b.r) })),
   get state() { return state; }, get time() { return gameTime; }, get fps() { return fps; },
+  cam: () => cam,                                                                                    // 镜头状态（震动幅度 / 位移 / 旋转 / 后坐；测试用）
+  shake: v => { if (v === undefined) return shakeScale; setShake(v); return shakeScale; },           // 读 / 设置整体震动强度（0~1；测试用）
+  settings: on => { if (on === undefined) return settings; if (on) openSettings(); else closeSettings(); return settings; }, // 打开 / 关闭设置面板
+  ui: () => ({ gear: gearRect(), pause: uiRects.pset || null, resume: uiRects.resume || null, start: uiRects.start || null, panel: JSON.parse(JSON.stringify(setRects)), state, muted: Snd.muted, view: { w: W, h: H, vw, vh } }), // 设置相关控件的屏幕矩形
   player: () => player, enemies: () => enemies, stats: () => stats,
   counts: () => ({ enemies: enemies.length, bullets: bullets.length, parts: parts.length, drops: drops.length, decals: decals.length }),
   start: startGame,
@@ -4674,17 +4841,17 @@ window.__wm = {
   spawn(n, type, elite, dist) { for (let i = 0; i < n; i++) { const a = rand(TAU), d = dist || rand(380, 700); spawnEnemy(type || 0, player.x + Math.cos(a) * d, player.y + Math.sin(a) * d, !!elite); } },
   hurt(n) { hurtPlayer(n, player.x + 40, player.y, true); },
   pick: chooseCard,
-  wipe() { bullets.length = 0; },                                                               // 清掉飞行中的子弹（测试用）
-  up(key) { applyUpgrade(key); },                                                            // 直接获得一级词条（测试用）
-  weapon(i) { if (i === undefined) return player.weapon; switchWeapon(i); },   // 不传参数返回当前武器序号；传 0/1/2 切换
-  gun: () => gun,                                                             // 当前武器的实际数值
-  hit(i, base, opts) { return applyDamage(enemies[i], base, opts || {}); },                           // 对第 i 个敌人走一次统一伤害结算，返回实际伤害
-  ups: () => { const o = {}; for (const k in UPS) o[k] = [UPS[k].lvl, +UPS[k].val.toFixed(3), UPS[k].tier, UPS[k].tag || '']; return o; },   // 全部词条的 [等级, 数值, 分级, 角标]
-  dmgBy: () => JSON.parse(JSON.stringify(stats.dmgBy)),                                                     // 按来源统计的伤害
+  wipe() { bullets.length = 0; },                                                                    // 清掉飞行中的子弹（测试用）
+  up(key) { applyUpgrade(key); },                                                                    // 直接获得一级词条（测试用）
+  weapon(i) { if (i === undefined) return player.weapon; switchWeapon(i); },                         // 不传参数返回当前武器序号；传 0/1/2 切换
+  gun: () => gun,                                                                                    // 当前武器的实际数值
+  hit(i, base, opts) { return applyDamage(enemies[i], base, opts || {}); },                          // 对第 i 个敌人走一次统一伤害结算，返回实际伤害
+  ups: () => { const o = {}; for (const k in UPS) o[k] = [UPS[k].lvl, +UPS[k].val.toFixed(3), UPS[k].tier, UPS[k].tag || '']; return o; }, // 全部词条的 [等级, 数值, 分级, 角标]
+  dmgBy: () => JSON.parse(JSON.stringify(stats.dmgBy)),                                              // 按来源统计的伤害
   cards: () => cards.map(c => c.key),
   fx: () => ({ tracers: tracers.length, throws: throws.length, bolts: bolts.length, booms: booms.length, words: words.map(w => w.str) }),
-  solids: () => solidsNear.map(p => ({ type: p.type, x: p.x, y: p.y, cr: p.cr, hw: p.hw, hh: p.hh, rot: p.rot, hard: !!p.hard })),   // 玩家附近的固体障碍（掩体测试用）
-  tick(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 60); render(); }   // 手动推帧（不依赖 requestAnimationFrame）
+  solids: () => solidsNear.map(p => ({ type: p.type, x: p.x, y: p.y, cr: p.cr, hw: p.hw, hh: p.hh, rot: p.rot, hard: !!p.hard })), // 玩家附近的固体障碍（掩体测试用）
+  tick(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 60); render(); }                        // 手动推帧（不依赖 requestAnimationFrame）
 };
 
 /* 预热：首次使用某种字体 / 描边样式时浏览器要加载字形，可能造成一帧卡顿；在首帧之前先画一遍（不可见） */
