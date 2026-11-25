@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>废土疯潮 v1.4.0 · WASTELAND MAYHEM</title>
+<title>废土疯潮 v1.4.1 · WASTELAND MAYHEM</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a120b; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
@@ -45,8 +45,8 @@ const FONT_UI = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Heiti SC",sans-
 
 /* 版本号：每次改动上线前手动更新（VERSION 末位递增，BUILD_DATE 填当天），三处要一致——这里、<title>、以及提交说明。
    显示在浏览器标签页标题、开始界面右下角、暂停 / 结算界面和调试信息里，用来确认线上是不是最新版。
-   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场） */
-const VERSION = 'v1.4.0', BUILD_DATE = '2026-11-25';
+   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场）· v1.4.1 自爆怪爆炸只伤到范围内的玩家 */
+const VERSION = 'v1.4.1', BUILD_DATE = '2026-11-25';
 document.title = '废土疯潮 ' + VERSION + ' · WASTELAND MAYHEM';
 
 /* ============================================================
@@ -1332,7 +1332,7 @@ function killEnemy(e, dx, dy) {
   addShake(e.type === 2 ? 3 : 1);
 }
 
-/* 爆炸：对范围内敌人造成衰减伤害（可误伤），可引爆附近油桶。tag 为结算页上的伤害来源（默认"环境爆炸"） */
+/* 爆炸：对范围内敌人造成衰减伤害（可误伤），范围内的玩家同样受伤（dmgP > 0 时），可引爆附近油桶。tag 为结算页上的伤害来源（默认"环境爆炸"） */
 function explode(x, y, radius, dmgE, dmgP, big, tag) {
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i]; if (e.dead) continue;
@@ -1340,7 +1340,12 @@ function explode(x, y, radius, dmgE, dmgP, big, tag) {
     if (d > radius + e.r) continue;
     applyDamage(e, dmgE * (1 - 0.45 * d / (radius + e.r)), { sourceTag: tag || 'blast', kx: dx / d, ky: dy / d, kb: 3.5 });
   }
-  if (dmgP > 0) hurtPlayer(dmgP, x, y);
+  // 玩家同样只在自己站在爆炸范围内时才受伤，衰减和敌人一致（边缘处 55%）。
+  // v1.4.1 之前这一行没有距离判定：自爆矮人 / 无人机在地图任何角落死掉，玩家都会隔空吃满伤害（"疯子军团"一波刷出一圈自爆怪时最明显）
+  if (dmgP > 0 && player.alive) {
+    const dx = player.x - x, dy = player.y - y, d = hyp(dx, dy) || 1;
+    if (d < radius + player.r) hurtPlayer(dmgP * (1 - 0.45 * d / (radius + player.r)), x, y);
+  }
   for (let i = solidsNear.length - 1; i >= 0; i--) { const q = solidsNear[i]; if (q.type === 'barrel' && hyp(q.x - x, q.y - y) < radius + 16) igniteBarrel(q, rand(0.08, 0.2)); }   // 倒序：点燃会从 solidsNear 移除
   booms.push({ x, y, r: radius, t: 0, max: big ? 0.55 : 0.45, rot: rand(TAU), pts: starPts(12, 0.38), ring: false });
   const n = big ? 9 : 6;
