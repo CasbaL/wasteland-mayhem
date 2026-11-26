@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>废土疯潮 v1.4.2 · WASTELAND MAYHEM</title>
+<title>废土疯潮 v1.4.3 · WASTELAND MAYHEM</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a120b; }
   canvas { display: block; width: 100vw; height: 100vh; cursor: none; touch-action: none; }
@@ -45,8 +45,8 @@ const FONT_UI = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Heiti SC",sans-
 
 /* 版本号：每次改动上线前手动更新（VERSION 末位递增，BUILD_DATE 填当天），三处要一致——这里、<title>、以及提交说明。
    显示在浏览器标签页标题、开始界面右下角、暂停 / 结算界面和调试信息里，用来确认线上是不是最新版。
-   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场）· v1.4.1 自爆怪爆炸只伤到范围内的玩家 · v1.4.2 震屏按距离衰减，设置里可调震动强度 */
-const VERSION = 'v1.4.2', BUILD_DATE = '2026-11-25';
+   v1.0.0 初版 · v1.1.0 三武器与元素 · v1.2.0 渲染层（手臂 / 枪口焰 / 掩体 / 斜切进度条）· v1.3.0 12 个词条与统一伤害结算 · v1.3.1 版本号显示 · v1.4.0 关底 Boss 战（每 3 分钟登场）· v1.4.1 自爆怪爆炸只伤到范围内的玩家 · v1.4.2 震屏按距离衰减，设置里可调震动强度 · v1.4.3 顿帧强度跟随震动设置，小爆炸不再顿帧 */
+const VERSION = 'v1.4.3', BUILD_DATE = '2026-11-26';
 document.title = '废土疯潮 ' + VERSION + ' · WASTELAND MAYHEM';
 
 /* ============================================================
@@ -405,7 +405,7 @@ const TIPS = [
   '提示：拿了泰迪尔之后，换弹就是把手里的枪扔出去炸人，残弹越多越疼。',
   '提示：每 3 分钟会有关底 Boss 登场——地面红圈和红线都是预警，冲刺期间无敌可以硬穿。',
   '提示：击倒关底 Boss 会掉秘藏宝箱：必出稀有以上词条，还能回复 30% 生命。',
-  '提示：觉得震屏太厉害？开始界面右上角的齿轮（或暂停菜单的「设置」）里可以把震动调弱。'
+  '提示：震屏太厉害、爆炸时发卡？去「设置」调弱震动，0% 时连慢动作一起关。'
 ];
 
 /* 敌人类型：0 狂热疯子（近战冲锋） 1 自爆矮人 2 重装铁桶兵 */
@@ -1367,7 +1367,8 @@ function explode(x, y, radius, dmgE, dmgP, big, tag) {
   for (let i = 0; i < n; i++) { const a = rand(TAU), s = rand(60, big ? 340 : 230); addPart('smoke', x + Math.cos(a) * 14, y + Math.sin(a) * 14, Math.cos(a) * s, Math.sin(a) * s, rand(0.35, 0.6), rand(6, big ? 14 : 10), i % 3 ? '#4A3C32' : '#7A6A5A'); }
   for (let i = 0; i < 12; i++) { const a = rand(TAU), s = rand(200, 520); addPart('spark', x, y, Math.cos(a) * s, Math.sin(a) * s, rand(0.2, 0.45), 2.5, i % 2 ? '#FFD23F' : '#FF8A1E'); }
   addDecal('scorch', x, y, radius * 0.7);
-  if (addShakeAt(x, y, big ? 18 : 12) > 0.4) hitStop = Math.min(0.12, Math.max(hitStop, big ? 0.05 : 0.035));   // 离玩家越远震得越轻；远处爆炸也不顿帧
+  const sf = addShakeAt(x, y, big ? 18 : 12);   // 离玩家越远震得越轻
+  if (big && sf > 0.4) hitStop = Math.min(0.12, Math.max(hitStop, 0.04));   // 只有大爆炸（油桶）且离玩家不远才顿帧：自爆怪 / 无人机这类频繁的小爆炸不顿帧，免得打着发卡
   addWord(big ? 'KA-BOOM!' : 'BOOM!', x, y - 20, '#FF9A1F', big ? 56 : 44, 'boom', 120);
   SFX.boom();
 }
@@ -4546,7 +4547,7 @@ function drawSettings() {
     ctx.fillStyle = on ? '#FFD23F' : '#231A12'; rr(ctx, 36, 286, 184, 40, 9); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke();
     txt('试震一下', 128, 307, 19, on ? '#000' : '#FFD23F', 'center', 0);
   }
-  txt('近处的爆炸震得重，远处很轻 · 调整后自动保存', 240, 306, 15, '#7A5A2A', 'left', 0);
+  txt('远处更轻 · 0% 时也关掉爆炸慢动作 · 自动保存', 240, 306, 15, '#7A5A2A', 'left', 0);
   // ---- 音效 ----
   ctx.fillStyle = '#000'; ctx.fillRect(28, 344, cw - 56, 3);
   txt('音效', 36, 376, 24, '#000', 'left', 0);
@@ -4674,7 +4675,7 @@ function update(dt) {
     Music.energy = boss ? 1 : clamp(0.3 + gameTime / 420, 0.3, 1);   // Boss 战：音乐能量拉满
     if (hintT > 0) hintT -= dt;
     let sdt = dt;
-    if (hitStop > 0) { hitStop -= dt; sdt = dt * 0.1; }   // 顿帧：爆炸 / 爆头瞬间的时间拉伸
+    if (hitStop > 0) { hitStop -= dt; sdt = dt * (1 - 0.9 * shakeScale); }   // 顿帧：爆炸 / 爆头瞬间的时间拉伸。强度跟随设置里的震动强度——0% 时世界照常速度走，没有任何慢动作
     if (!player.alive) sdt = dt * 0.3;                     // 死亡慢镜头
     if (bossSlow > 0) { bossSlow = Math.max(0, bossSlow - dt); sdt = dt * 0.22; }   // 击杀 Boss：0.5 秒慢动作特写
     gun = weaponStats(player.weapon);
